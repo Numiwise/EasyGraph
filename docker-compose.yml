@@ -1,0 +1,337 @@
+# ============================================================
+# 免 build 部署：LightRAG（官方镜像） + Neo4j + Qdrant + PostgreSQL
+# ------------------------------------------------------------
+# 镜像策略：
+#   - LightRAG 使用 ghcr.1ms.run 国内 ghcr 加速域名（免本地 build）
+#   - Neo4j / Qdrant / PostgreSQL / pgAdmin 使用 Docker Hub 官方镜像
+# 存储策略：
+#   - 图存储 → Neo4j（替换默认 NetworkXStorage）
+#   - 向量存储 → Qdrant（替换默认 NanoVectorDBStorage）
+#   - KV / DocStatus → PostgreSQL（替换默认 JSON 文件存储）
+# 可视化：
+#   - LightRAG       : http://127.0.0.1:9621
+#   - NeoDash (图谱) : http://localhost:5005  ← Neo4j 官方仪表板
+#   - Neo4j Browser  : http://localhost:7474
+#   - Qdrant Dashboard: http://localhost:6333/dashboard
+#   - pgAdmin (PG)   : http://localhost:5050
+# ============================================================
+services:
+  # ========== Neo4j 图数据库（完整版，LightRAG 写入） ==========
+  neo4j:
+    image: neo4j:5.26
+    container_name: lightrag-neo4j
+    restart: unless-stopped
+    ports:
+      - "7474:7474"   # Neo4j Browser Web UI（完整版，备份保留）
+      - "7687:7687"   # Bolt 协议（LightRAG 抽取写入此实例）
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD}
+      NEO4J_server_bolt_listen__address: ":7687"
+      NEO4J_server_http_listen__address: ":7474"
+      NEO4J_server_memory_heap_initial__size: 256m
+      NEO4J_server_memory_heap_max__size: 512m
+      NEO4J_server_memory_pagecache_size: 256m
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/7687'"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 40s
+
+  # ========== Neo4j 图数据库（展示版，清理后的精简图供前端使用） ==========
+  # 设计：
+  #   - 数据卷 neo4j_display_data 从 neo4j_data 全量复制（保留完整版可恢复）
+  #   - 启动后在此实例上跑 scripts/graph/clean+prune+kcore+merge 持久化清理
+  #   - 前端 webviz 仅连此实例（bolt://localhost:7688），不读完整版
+  #   - LightRAG 继续写完整版（lightrag-neo4j:7687），不影响展示版
+  neo4j-display:
+    image: neo4j:5.26
+    container_name: lightrag-neo4j-display
+    restart: unless-stopped
+    ports:
+      - "7475:7474"   # Neo4j Browser Web UI（展示版）
+      - "7688:7687"   # Bolt 协议（前端 webviz 使用此端口）
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD}
+      NEO4J_server_bolt_listen__address: ":7687"
+      NEO4J_server_http_listen__address: ":7474"
+      NEO4J_server_memory_heap_initial__size: 256m
+      NEO4J_server_memory_heap_max__size: 512m
+      NEO4J_server_memory_pagecache_size: 256m
+    volumes:
+      - neo4j_display_data:/data
+      - neo4j_display_logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/7687'"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 40s
+
+  # ========== Qdrant 向量数据库 ==========
+  # 轻量级向量数据库，内置 Dashboard 可视化界面
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: lightrag-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"   # HTTP API + Dashboard（http://localhost:6333/dashboard）
+      - "6334:6334"   # gRPC 端口
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/6333'"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 15s
+
+  # ========== PostgreSQL（KV / DocStatus 存储） ==========
+  # 提供 pgvector 扩展，未来如需向量存储也可切换到 PGVectorStorage
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: lightrag-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"   # PostgreSQL 协议（LightRAG 通过此端口连接）
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-lightrag}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-LightRAG2026pg}
+      POSTGRES_DB: ${POSTGRES_DATABASE:-lightrag}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lightrag} -d ${POSTGRES_DATABASE:-lightrag}"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 15s
+
+  # ========== pgAdmin（PostgreSQL Web UI） ==========
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: lightrag-pgadmin
+    restart: unless-stopped
+    ports:
+      - "5050:80"     # pgAdmin Web UI（http://localhost:5050）
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@lightrag.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-LightRAG2026admin}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ========== NeoDash（Neo4j 可视化仪表板） ==========
+  # 开源、低代码、拖拽式构建图谱仪表板
+  # 节点可显示 entity_id、关系显示 description、按 entity_type 着色
+  neodash:
+    image: neo4jlabs/neodash:latest
+    container_name: lightrag-neodash
+    restart: unless-stopped
+    ports:
+      - "5005:5005"   # NeoDash Web UI（http://localhost:5005）
+    environment:
+      # Standalone 模式：预配置 Neo4j 连接，用户无需手动输入
+      STANDALONE_USERNAME: "neo4j"
+      STANDALONE_PASSWORD: "${NEO4J_PASSWORD:-LightRAG2026neo4j}"
+      STANDALONE_URL: "bolt://neo4j:7687"
+      STANDALONE_DATABASE: "neo4j"
+      # 允许嵌入与跨域（教学环境便利）
+      SAMESITE: "lax"
+      SECURE: "false"
+    depends_on:
+      neo4j:
+        condition: service_healthy
+
+  # ========== 图谱可视化大屏（Vue3 + Element Plus 前端，浏览器直连 Neo4j bolt） ==========
+  # 七个工作区路由切换 / 按实体类型着色筛选 / 搜索 / 点击查看实体与关系描述
+  webviz:
+    image: nginx:alpine
+    container_name: lightrag-webviz
+    restart: unless-stopped
+    ports:
+      - "5006:80"   # 图谱可视化大屏（http://localhost:5006）
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+      # 原文资料（已解析的 markdown）挂载到容器内独立路径 /kb，供前端「查看完整原文」使用
+      # 注意：不能挂到 /usr/share/nginx/html 之下（该目录为只读挂载，无法创建子挂载点）
+      # 访问路径：http://localhost:5006/kb/<workspace>/__parsed__/<文件名>
+      - ./data/inputs:/kb:ro
+      # 自定义 nginx 配置：
+      #   nginx-main.conf  → 主配置（user root，规避挂载文件 0600 权限问题）
+      #   nginx-webviz.conf → 站点配置（暴露 /kb/ 纯文本目录 + SPA 回落）
+      - ./nginx/nginx-main.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/nginx-webviz.conf:/etc/nginx/conf.d/webviz.conf:ro
+
+  # ========== LightRAG 服务（7 个图谱 = 6 分图 + 1 总图） ==========
+  # 机制：LightRAG v1.5.6 一个容器实例固定使用一个 WORKSPACE；存储层按工作区
+  #   天然隔离 —— Neo4j 每个工作区一个节点标签、Qdrant 每个工作区独立集合、
+  #   PostgreSQL 用 workspace 列隔离。因此"一套数据库 + 7 个实例（各带不同
+  #   WORKSPACE 环境变量）"即可在同一个 LightRAG 项目中并存多个互不串扰的图谱。
+  #
+  # 端口与工作区规划：
+  #   lightrag      9621  g00_master_all             总图谱（六维度资料全部传入）
+  #   lightrag-g01  9622  g01_people_literature      人物与文献
+  #   lightrag-g02  9623  g02_places_routes          地点与交通
+  #   lightrag-g03  9624  g03_varieties              荔枝品种
+  #   lightrag-g04  9625  g04_history_institutions   历史与制度
+  #   lightrag-g05  9626  g05_lingnan_liwan          岭南文化与荔湾
+  #   lightrag-g06  9627  g06_industry_tech          现代产业与科技
+  #
+  # 内存策略：6 个分图实例归入 compose profile "subgraphs"，默认不启动；
+  #   上传某维度资料或课堂需要时再按需启动（可用 switch-graph.ps1 切换，
+  #   始终只保留一个分图实例在跑）。总图实例 lightrag 默认随基础设施启动。
+  #   全部启动：docker compose --profile subgraphs up -d
+
+  # ------ 总图实例（默认启动） ------
+  lightrag:
+    image: ghcr.1ms.run/hkuds/lightrag:latest
+    container_name: lightrag-server
+    restart: unless-stopped
+    depends_on: &lightrag-depends
+      neo4j:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${HOST:-127.0.0.1}:${PORT:-9621}:9621"
+    volumes: &lightrag-volumes
+      - ./data/rag_storage:/app/data/rag_storage
+      - ./data/inputs:/app/data/inputs
+      # PROMPT_DIR 挂载：entity_type/*.yml 官方原生支持自定义实体类型 + few-shot
+      - ./data/prompts:/app/data/prompts
+      - ./.env:/app/.env:ro
+      # 注意：之前的 ./data/lightrag_overrides/prompt.py 覆盖已回滚（避免 422 等异常），
+      #       只保留 PROMPT_DIR 实体抽取 prompt 覆盖，回答 prompt 用官方默认。
+    environment: &lightrag-env
+      # 默认值=总图谱工作区；各分图实例在自己的 environment 里覆盖 WORKSPACE
+      WORKSPACE: "g00_master_all"
+      WORKING_DIR: "/app/data/rag_storage"
+      INPUT_DIR: "/app/data/inputs"
+      PROMPT_DIR: "/app/data/prompts"
+      HOST: "0.0.0.0"
+      PORT: "9621"
+      # LLM（SiliconFlow DeepSeek-V3，OpenAI 兼容协议）
+      LLM_BINDING: "openai"
+      LLM_BINDING_HOST: "https://api.siliconflow.cn/v1"
+      LLM_BINDING_API_KEY: "sk-tnfbxqnjsiqbwbsdhikypadmnwiuzrvtjwcrjubwgyfdhwsi"
+      LLM_MODEL: "deepseek-ai/DeepSeek-V3"
+      # Embedding（保持不变）
+      EMBEDDING_BINDING: "openai"
+      EMBEDDING_BINDING_HOST: "https://api.siliconflow.cn/v1"
+      EMBEDDING_BINDING_API_KEY: "sk-tnfbxqnjsiqbwbsdhikypadmnwiuzrvtjwcrjubwgyfdhwsi"
+      EMBEDDING_MODEL: "BAAI/bge-m3"
+      EMBEDDING_DIM: "1024"
+      # Qdrant 连接（compose 内部网络，服务名=qdrant）
+      QDRANT_URL: "http://qdrant:6333"
+      # Neo4j 连接
+      NEO4J_URI: "bolt://neo4j:7687"
+      NEO4J_USERNAME: "neo4j"
+      NEO4J_PASSWORD: "LightRAG2026neo4j"
+      # PostgreSQL 连接（compose 内部网络，服务名=postgres）
+      POSTGRES_HOST: "postgres"
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: "lightrag"
+      POSTGRES_PASSWORD: "LightRAG2026pg"
+      POSTGRES_DATABASE: "lightrag"
+      # 存储后端切换：KV / DocStatus → PostgreSQL（替换默认 JSON 文件存储）
+      LIGHTRAG_KV_STORAGE: "PGKVStorage"
+      LIGHTRAG_DOC_STATUS_STORAGE: "PGDocStatusStorage"
+      # 妃子笑荔枝文化课程定制实体关系抽取（注入环境变量，不依赖 .env 加载时机）
+      SUMMARY_LANGUAGE: "Chinese"
+      ENTITY_EXTRACTION_USE_JSON: "true"
+      ENTITY_TYPE_PROMPT_FILE: "lychee_culture.yml"
+      MAX_EXTRACTION_RECORDS: "60"
+      MAX_EXTRACTION_ENTITIES: "30"
+      MAX_GLEANING: "2"
+    extra_hosts: &lightrag-hosts
+      - "host.docker.internal:host-gateway"
+
+  # ------ 分图 1：人物与文献（按需启动，profile=subgraphs） ------
+  lightrag-g01: &lightrag-sub
+    image: ghcr.1ms.run/hkuds/lightrag:latest
+    profiles: ["subgraphs"]
+    container_name: lightrag-g01
+    restart: unless-stopped
+    depends_on: *lightrag-depends
+    ports:
+      - "127.0.0.1:9622:9621"
+    volumes: *lightrag-volumes
+    environment:
+      <<: *lightrag-env
+      WORKSPACE: "g01_people_literature"
+      ENTITY_TYPE_PROMPT_FILE: "lychee_g01_people.yml"
+    extra_hosts: *lightrag-hosts
+
+  # ------ 分图 2：地点与交通 ------
+  lightrag-g02:
+    <<: *lightrag-sub
+    container_name: lightrag-g02
+    ports:
+      - "127.0.0.1:9623:9621"
+    environment:
+      <<: *lightrag-env
+      WORKSPACE: "g02_places_routes"
+      ENTITY_TYPE_PROMPT_FILE: "lychee_g02_places.yml"
+
+  # ------ 分图 3：荔枝品种 ------
+  lightrag-g03:
+    <<: *lightrag-sub
+    container_name: lightrag-g03
+    ports:
+      - "127.0.0.1:9624:9621"
+    environment:
+      <<: *lightrag-env
+      WORKSPACE: "g03_varieties"
+      ENTITY_TYPE_PROMPT_FILE: "lychee_g03_varieties.yml"
+
+  # ------ 分图 4：历史与制度 ------
+  lightrag-g04:
+    <<: *lightrag-sub
+    container_name: lightrag-g04
+    ports:
+      - "127.0.0.1:9625:9621"
+    environment:
+      <<: *lightrag-env
+      WORKSPACE: "g04_history_institutions"
+      ENTITY_TYPE_PROMPT_FILE: "lychee_g04_history.yml"
+
+  # ------ 分图 5：岭南文化与荔湾 ------
+  lightrag-g05:
+    <<: *lightrag-sub
+    container_name: lightrag-g05
+    ports:
+      - "127.0.0.1:9626:9621"
+    environment:
+      <<: *lightrag-env
+      WORKSPACE: "g05_lingnan_liwan"
+      ENTITY_TYPE_PROMPT_FILE: "lychee_g05_lingnan.yml"
+
+  # ------ 分图 6：现代产业与科技 ------
+  lightrag-g06:
+    <<: *lightrag-sub
+    container_name: lightrag-g06
+    ports:
+      - "127.0.0.1:9627:9621"
+    environment:
+      <<: *lightrag-env
+      WORKSPACE: "g06_industry_tech"
+      ENTITY_TYPE_PROMPT_FILE: "lychee_g06_industry.yml"
+
+volumes:
+  neo4j_data:
+  neo4j_logs:
+  neo4j_display_data:
+  neo4j_display_logs:
+  qdrant_data:
+  postgres_data:
+  pgadmin_data:

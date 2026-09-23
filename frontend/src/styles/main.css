@@ -1,0 +1,229 @@
+/* ============================================================
+ * main.css —— 全局基础 + 跨视图共性组件
+ * 设计：白底 + 深色卡片 + 强彩边 + 强化投影（v3 配色）
+ *   - 页面背景：饱和度更低、亮度略降的浅蓝紫渐变（与卡片拉开色阶）
+ *   - 面板/卡片：从浅蓝调 → 深蓝调（#eaf1fb → #dde7f6 → #c9d8ee），
+ *                1px 实线深边框 + 中度投影，层次清晰
+ *   - 顶部导航：深色锚点不变（品牌一致）
+ *   - 查询页：保持「彩色背景 + 白色对话框」原则不变
+ *   - 主色 #1f6feb（品牌蓝），强调 #b45309（琥珀）
+ *   - 文本三级：#0f1a2a(主) / #34465c(次) / #6b7a8f(弱)
+ * 个性样式已迁出到各 view css：
+ *   - src/styles/home.css   —— 首页 HomeView
+ *   - src/styles/graph.css  —— 图谱浏览页 GraphView
+ *   - src/styles/query.css  —— 智能问答页 QueryView
+ *   - src/styles/doc.css    —— 原文浏览页 DocView
+ * ============================================================ */
+:root {
+  --bg: #e7ecf5;
+  --surface: #ffffff;          /* 顶级白底（与页面渐变对比最显） */
+  --surface-2: #eef3fa;        /* 浅蓝调次级面 */
+  --panel: #f4f7fc;            /* 卡片一级：浅蓝白 */
+  --panel-2: #dde7f6;          /* 卡片二级：中蓝（与一级形成层次） */
+  --panel-3: #c9d8ee;          /* 卡片三级：深蓝（强调 / 选中） */
+  --border: #c5d4e8;
+  --border-2: #a7b9d2;
+  --text-1: #0f1a2a;
+  --text-2: #34465c;
+  --text-3: #6b7a8f;
+  --primary: #1f6feb;
+  --primary-strong: #1857c0;
+  --primary-soft: #e7f0ff;
+  --gold: #b45309;
+  --gold-soft: #fbf0dd;
+  --danger: #d23b3b;
+  --ok: #1f9d57;
+
+  /* 深色导航/工具条（强对比锚点） */
+  --chrome: #1c2742;
+  --chrome-2: #2c3e6b;
+  --chrome-text: #f4f7fc;
+  --chrome-dim: #b6c4de;
+  /* 区块用的协调柔色（带色相，不灰白） */
+  --tint-blue: #eef4fd;   --tint-blue-bd: #a7c1e8;
+  --tint-amber: #fff4e2;  --tint-amber-bd: #e8b87a;
+  --tint-green: #eaf7ef;  --tint-green-bd: #82c69d;
+  --tint-rose: #fdeef3;   --tint-rose-bd: #e08aa6;
+  --tint-purple: #f1ecfb; --tint-purple-bd: #b497e6;
+
+  /* 让 Element Plus 组件贴合本项目的品牌主色 */
+  --el-color-primary: #1f6feb;
+  --el-color-primary-light-3: #5b8ef0;
+  --el-color-primary-light-5: #8fb4f5;
+  --el-color-primary-light-7: #c2d6fb;
+  --el-color-primary-light-8: #d9e7fd;
+  --el-color-primary-light-9: #e7f0ff;
+  --el-color-primary-dark-2: #1857c0;
+  --el-border-radius-base: 6px;
+  --el-font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+  /* 把 Element Plus 的「空白填充 / 弹层底色」由纯白改为带色 */
+  --el-fill-color-blank: #eef3fa;
+  --el-bg-color: #f4f7fc;
+  --el-bg-color-overlay: #eef4fc;
+  --el-fill-color-light: #e0eaf9;
+}
+
+/* ============ 强制去除 Element Plus 浅白控件 ============ */
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper {
+  background-color: var(--el-fill-color-blank) !important;
+  box-shadow: 0 0 0 1px var(--border) inset !important;
+}
+.el-select-dropdown,
+.el-popper.is-light {
+  background-color: #ffffff !important;
+  border-color: var(--border) !important;
+}
+.el-select-dropdown__item.is-hovering,
+.el-select-dropdown__item:hover { background-color: var(--primary-soft) !important; }
+.el-select-dropdown__item.is-selected { color: var(--primary) !important; font-weight: 700; }
+.el-tag--info { background-color: var(--tint-purple) !important; border-color: var(--tint-purple-bd) !important; color: #5b4b86 !important; }
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; overflow: hidden;
+  font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+  background:
+    radial-gradient(1200px 700px at 12% -10%, #d4dff2 0%, rgba(212,223,242,0) 60%),
+    radial-gradient(1100px 720px at 100% 110%, #d8c8ec 0%, rgba(216,200,236,0) 58%),
+    linear-gradient(135deg, #e7ecf5 0%, #e3e9f5 50%, #e8e2f1 100%);
+  color: var(--text-1); }
+#app { width: 100%; height: 100%; }
+
+/* ============================================================
+ * 跨视图共性：置顶栏徽标 / 标签 / 图例复选框
+ *   #bar(GraphView) / #qbar(QueryView) / #docbar(DocView) 共用 .brand / .bbadge 结构；
+ *   图例 el-checkbox 适配同时命中 #legend 与 #qlegend。
+ * ============================================================ */
+#qbar .brand, #docbar .brand { display: flex; align-items: center; gap: 7px; margin-right: 4px; }
+#qbar .bbadge, #docbar .bbadge { display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 7px; color: #fff; font-weight: 800; font-size: 14px;
+  box-shadow: 0 1px 4px rgba(31,45,61,.22); }
+/* 跨视图共用标签 */
+label.lbl { font-size: 12px; color: var(--chrome-dim); }
+/* 跨视图共用：图例 el-checkbox 适配（深色卡上打钩式选择） */
+#qlegend .legend-ck,
+#legend .legend-ck { display: flex; align-items: center; height: auto; margin: 3px 0; }
+#qlegend .legend-ck .el-checkbox__input,
+#legend .legend-ck .el-checkbox__input { display: inline-flex; }
+#qlegend .legend-ck .el-checkbox__inner,
+#legend .legend-ck .el-checkbox__inner { background: transparent; border-color: #8ea3c8; }
+#qlegend .legend-ck .el-checkbox__inner::after,
+#legend .legend-ck .el-checkbox__inner::after { border-color: #0f1a2a; }
+#qlegend .legend-ck.is-checked .el-checkbox__inner,
+#legend .legend-ck.is-checked .el-checkbox__inner { background: #ffd257; border-color: #ffd257; }
+#qlegend .legend-ck .el-checkbox__label,
+#legend .legend-ck .el-checkbox__label {
+  color: #e8eefb; font-size: 12px; font-weight: 500;
+  display: inline-flex; align-items: center; gap: 6px; padding-left: 8px; }
+#qlegend .legend-ck:hover .el-checkbox__label,
+#legend .legend-ck:hover .el-checkbox__label { color: #ffffff; }
+#qlegend .legend-ck.is-checked .el-checkbox__label,
+#legend .legend-ck.is-checked .el-checkbox__label { color: #ffffff; font-weight: 600; }
+/* 全选/全部不选 批量开关 */
+#qlegend .legend-batch .el-checkbox__label,
+#legend .legend-batch .el-checkbox__label { font-weight: 600; }
+#qlegend .legend-batch.is-checked .el-checkbox__label,
+#legend .legend-batch.is-checked .el-checkbox__label { color: #ffd257; }
+
+/* ============================================================
+ * 跨视图共性：节点原文片段（chunk）—— GraphView #side 与 QueryView #qside 通用
+ *   每个 chunk = 固定大小可滚动窗口 + 底部固定查看原文按钮
+ * ============================================================ */
+.chunks { margin: 8px 0; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.chunk { border: 1px solid var(--border); border-left: 4px solid var(--primary);
+  border-radius: 0 8px 8px 0; background: var(--surface-2); display: flex; flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(31,45,61,.06); transition: flex-basis .15s; }
+/* 默认（展开态）：固定高度，约 200px */
+.chunk { min-height: 200px; }
+/* 折叠态：仅显示标题条 + 按钮 */
+.chunk.collapsed { flex: 0 0 auto; min-height: 0; }
+.chunk.collapsed .chunk-scroll { display: none; }
+.chunk.collapsed .chunk-open { margin-top: 6px; margin-bottom: 8px; }
+.chunk-head { padding: 6px 12px; font-size: 12px; font-weight: 700; color: var(--primary-strong);
+  background: var(--primary-soft); border-bottom: 1px solid var(--border);
+  letter-spacing: .5px; flex: 0 0 auto; display: flex; align-items: center;
+  justify-content: space-between; gap: 8px; cursor: pointer; user-select: none; }
+.chunk-head:hover { background: linear-gradient(95deg, #d3e4ff, #c2d6fb); }
+.chunk-idx { color: var(--primary-strong); }
+.chunk-tog { font-size: 11px; color: var(--text-2); font-weight: 500; }
+.chunk-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 9px 12px 4px;
+  font-size: 12.5px; color: var(--text-1); line-height: 1.8; white-space: pre-wrap; }
+.chunk-para { color: var(--text-1); }
+.chunk-para.dim { color: var(--text-3); }
+.chunk-open { flex: 0 0 auto; margin: 6px 10px 8px; align-self: flex-start;
+  font-size: 12px !important; padding: 5px 14px !important; }
+.chunk-open.disabled,
+.chunk-open:disabled {
+  background: var(--surface-2); color: var(--text-3); border-color: var(--border);
+  cursor: not-allowed; opacity: .8;
+}
+.chunk-open.disabled:hover,
+.chunk-open:disabled:hover { background: var(--surface-2); border-color: var(--border); }
+.chunk .dim { font-size: 12.5px; color: var(--text-2); }
+
+/* ============================================================
+ * 跨视图共性：节点详情面板（分区头 / 描述 / 属性 / 邻居基础类）
+ *   通用分区头：可点击切换显隐，避免与正文 chunk 互斥打架
+ * ============================================================ */
+.section-head { display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 6px 10px; border-radius: 6px;
+  background: var(--primary-soft); border: 1px solid var(--border);
+  cursor: pointer; user-select: none; margin-bottom: 6px; }
+.section-head:hover { background: linear-gradient(95deg, #d3e4ff, #c2d6fb); }
+.sh-title { font-size: 12.5px; font-weight: 700; color: var(--primary-strong); letter-spacing: .5px; }
+.sh-tog { font-size: 11px; color: var(--text-2); font-weight: 500; }
+/* 描述区（独立卡片样式） */
+.descr { margin: 8px 0; }
+.descr-body { background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 9px 12px; font-size: 12.5px; color: var(--text-1);
+  line-height: 1.75; white-space: pre-wrap; word-break: break-word; }
+/* 属性表（节点 key/value） */
+.attrs { margin: 8px 0 10px; background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 10px; }
+.attrs-title { font-size: 12px; font-weight: 700; color: var(--primary-strong);
+  letter-spacing: .5px; margin-bottom: 6px; }
+.attrs-table { width: 100%; border-collapse: collapse; font-size: 12px; line-height: 1.55; }
+.attrs-table tr { border-bottom: 1px dashed var(--border); }
+.attrs-table tr:last-child { border-bottom: none; }
+.attrs-table th { width: 88px; padding: 4px 8px 4px 0; text-align: left; vertical-align: top;
+  color: var(--text-2); font-weight: 600; white-space: nowrap; }
+.attrs-table td { padding: 4px 0; color: var(--text-1); word-break: break-word; }
+.attrs-table th + td { padding-left: 0; }
+/* 邻居列表基础类 */
+.rel { margin: 8px 0; }
+.rel-title { font-size: 12.5px; font-weight: 700; color: var(--text-1);
+  margin: 12px 0 6px; letter-spacing: .5px; border-top: 1px dashed var(--border-2); padding-top: 10px; }
+.rel-body { padding-top: 2px; }
+
+/* ============================================================
+ * 跨视图共性：原文打开按钮（节点溯源 / chunk-open）
+ * ============================================================ */
+.isrc-open { border: 1px solid var(--primary); color: #fff; background: var(--primary);
+  border-radius: 5px; font-size: 11.5px; padding: 3px 10px; cursor: pointer; white-space: nowrap; font-weight: 600; }
+.isrc-open:hover { background: var(--primary-strong); border-color: var(--primary-strong); }
+
+/* ============================================================
+ * 跨视图共性：Markdown 渲染（基础 .md；DocView 用 #docbody .md 重写）
+ * ============================================================ */
+.md { font-size: 13.5px; color: var(--text-1); line-height: 1.85; word-break: break-word; }
+.md .md-h { color: var(--text-1); margin: 16px 0 8px; font-weight: 700; line-height: 1.45; }
+.md h1.md-h { font-size: 21px; } .md h2.md-h { font-size: 18px; }
+.md h3.md-h { font-size: 15.5px; } .md h4.md-h { font-size: 14px; }
+.md .md-p { margin: 8px 0; }
+.md .md-list { margin: 8px 0 8px 22px; }
+.md .md-list li { margin: 4px 0; }
+.md .md-quote { border-left: 3px solid var(--primary); background: var(--surface-2); padding: 6px 12px;
+  margin: 8px 0; color: var(--text-1); border-radius: 0 6px 6px 0; }
+.md .md-code { background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px;
+  padding: 1px 5px; font-size: 12.5px; font-family: Consolas, "Courier New", monospace; color: var(--gold); }
+.md .md-link { color: var(--primary); text-decoration: underline; }
+.md b { color: var(--text-1); font-weight: 700; }
+
+/* ============================================================
+ * 跨视图共性：原文段落弹层（GraphView / QueryView 共用）
+ * ============================================================ */
+.orig-dialog .orig-loading { color: var(--text-3); font-size: 13px; padding: 12px 0; }
+.orig-dialog .orig-body { max-height: 62vh; overflow-y: auto; font-size: 13px; color: var(--text-1);
+  line-height: 1.8; }

@@ -1,0 +1,76 @@
+/* ============================================================
+ * graph.css —— 图谱浏览页（GraphView）专属样式
+ *   - 大图谱视图：左侧图谱画布 + 右侧节点详情 + 图例
+ *   - 与 main.css 共用 chunk / attrs / section-head / isrc-open 等基础组件
+ * ============================================================ */
+
+.graph-page { width: 100%; height: 100%; display: flex; flex-direction: column; position: relative;
+  background: linear-gradient(135deg, #d9e4f5 0%, #d2def0 50%, #e0d6ee 100%); }
+#bar { display: flex; align-items: center; gap: 8px; padding: 9px 14px; row-gap: 8px;
+  background: linear-gradient(95deg, var(--chrome), var(--chrome-2)); border-bottom: none;
+  color: var(--chrome-text); flex-wrap: wrap; box-shadow: 0 2px 10px rgba(20,30,55,.28); }
+#bar .brand { display: flex; align-items: center; gap: 7px; margin-right: 4px; }
+#bar .bbadge { display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 7px; color: #fff; font-weight: 800;
+  font-size: 14px; box-shadow: 0 1px 4px rgba(31,45,61,.22); }
+#bar .title { font-size: 16px; font-weight: 700; color: var(--chrome-text); white-space: nowrap; }
+#status { margin-left: auto; font-size: 12px; color: var(--chrome-dim); white-space: nowrap; }
+#dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); margin-right: 5px; }
+#dot.ok { background: var(--ok); }
+#main { display: flex; flex: 1; min-height: 0; }
+#net { flex: 1; background: linear-gradient(180deg, #f4f7fc, #e9eff8); border-right: 1px solid var(--border); }
+#side { width: 340px; background: var(--panel);
+  border-left: 1px solid var(--border-2);
+  color: var(--text-2); padding: 14px; overflow-y: auto;
+  display: flex; flex-direction: column; min-height: 0;
+  box-shadow: inset 6px 0 14px -8px rgba(31,45,61,.18); }
+#side > .chunks { flex: 1 1 auto; min-height: 120px; }
+#side > .rel { flex: 0 0 auto; }
+#side h3 { color: var(--text-1); font-size: 15px; margin-bottom: 8px; word-break: break-all;
+  padding-left: 9px; border-left: 4px solid var(--primary); }
+#side .tag { display: inline-block; background: var(--primary); color: #fff;
+  border-radius: 4px; padding: 2px 8px; font-size: 12px; margin: 2px 4px 8px 0; }
+#side p { font-size: 13px; line-height: 1.7; white-space: pre-wrap; color: var(--text-2); }
+#side .hint { font-size: 11.5px; color: var(--text-1); background: var(--tint-amber);
+  border: 1px solid var(--tint-amber-bd); border-radius: 6px; padding: 6px 8px; margin: 8px 0; line-height: 1.5; }
+#side .rel { border-top: 1px dashed var(--border-2); margin-top: 10px; padding-top: 8px;
+  font-size: 12.5px; line-height: 1.6; }
+/* 图谱侧栏专属：邻居条目 / 关系溯源（#side 内的样式，#qside 不共用） */
+#side .rel-item { border-top: 1px dashed var(--border-2); margin-top: 8px; padding-top: 8px; }
+#side .rel-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+#side .relname { font-size: 11px; color: var(--gold); background: var(--gold-soft);
+  border: 1px solid var(--tint-amber-bd); border-radius: 4px; padding: 1px 6px; }
+#side .reldesc { font-size: 12.5px; color: var(--text-1); line-height: 1.65; margin-top: 4px; white-space: pre-wrap;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; }
+#side .relsrc { display: flex; gap: 6px; margin-top: 6px; }
+#side .relsrc .isrc-open { font-size: 11.5px; }
+
+/* 图谱图例：容器定义（图例内复选框样式与 #qlegend 共用，放 main.css） */
+#legend { position: absolute; left: 14px; bottom: 14px;
+  background: linear-gradient(150deg, #1c2742 0%, #2c3e6b 60%, #3a4f80 100%);
+  color: #f4f7fc;
+  border: 1px solid #0f1a2a; border-radius: 10px; padding: 10px 12px;
+  font-size: 12px; max-height: 46%; overflow-y: auto; z-index: 5;
+  box-shadow: 0 8px 22px rgba(15,26,42,.40); }
+#legend .lhead { color: #b6c4de; margin-bottom: 4px; font-weight: 600; }
+#legend .item { display: flex; align-items: center; gap: 6px; margin: 3px 0; cursor: pointer;
+  padding: 3px 6px; border-radius: 5px; color: #e8eefb; transition: background .15s; }
+#legend .item:hover { background: rgba(255,255,255,.10); }
+#legend .item.on { background: rgba(255,255,255,.18); color: #ffffff; font-weight: 600; }
+#legend .item.all { color: #ffd257; font-weight: 600; }
+#legend .ck { width: 14px; font-size: 13px; color: #ffd257; }
+#legend .sw { width: 11px; height: 11px; border-radius: 3px; box-shadow: 0 0 0 1px rgba(255,255,255,.18); display: inline-block; }
+
+/* 图谱加载期遮罩 */
+#loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(180deg, rgba(244,247,252,.92), rgba(233,239,248,.95));
+  z-index: 8; backdrop-filter: blur(2px); }
+#loading .loading-card { background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; padding: 22px 30px; min-width: 240px;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  box-shadow: 0 18px 40px rgba(28,39,66,.22); }
+#loading .loading-spin { width: 38px; height: 38px; border-radius: 50%;
+  border: 3px solid var(--border); border-top-color: var(--primary);
+  animation: qspin .9s linear infinite; margin-bottom: 4px; }
+#loading .loading-title { font-size: 15px; font-weight: 700; color: var(--text-1); }
+#loading .loading-sub { font-size: 11.5px; color: var(--text-3); text-align: center; line-height: 1.5; }

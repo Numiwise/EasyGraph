@@ -1,0 +1,50 @@
+# ============================================================
+# .gitignore — 项目级 Git 忽略规则
+# ============================================================
+
+# ---- 私有材料（不入公开仓库） ----
+_private/
+
+# ---- 真实环境变量（保护密钥） ----
+.env
+.env.local
+.env.*.local
+
+# ---- 日志与临时 ----
+logs/
+*.log
+*.log.*
+npm-debug.log*
+
+# ---- Python 缓存 ----
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+
+# ---- Node / Vue ----
+node_modules/
+dist/
+.vite/
+
+# ---- 备份与重构临时文件（不入 git） ----
+_refactor_bak/
+*_backup*
+*.bak
+
+# ---- IDE 与系统 ----
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- 运行产物（已 parse / LightRAG 运行时数据） ----
+# 解析后的 markdown 与图谱抽取结果如不希望跟随仓库版本演进，可取消注释：
+# data/inputs/*/__parsed__/         # 已解析 markdown
+# data/rag_storage/                 # LightRAG 工作目录
+# data/lightrag-volumes/            # Docker 卷挂载根

@@ -1,0 +1,20 @@
+# LightRAG 部署脚本运行依赖
+# 安装：pip install -r requirements.txt
+#
+# 注意：主项目运行（LightRAG / Neo4j / Qdrant / PostgreSQL / 前端）通过
+#       Docker Compose 启动，不需要本地 Python 依赖。本文件仅供：
+#       1) 运行 scripts/tests/ 下的本地测试
+#       2) 运行 scripts/graph/ 下的图谱清洗分析脚本
+#       3) 运行 scripts/ops/build_origins.py 等运维脚本
+
+# --- 测试 ---
+pytest>=8.0
+requests>=2.31
+pyyaml>=6.0
+
+# --- 图谱脚本（Neo4j / Python 操作）---
+neo4j>=5.20
+python-dotenv>=1.0
+
+# --- LLM 客户端（可选：脚本里如果直接调 LLM 用）---
+openai>=1.30
