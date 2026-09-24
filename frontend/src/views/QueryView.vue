@@ -289,10 +289,10 @@
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { DataSet, Network } from 'vis-network/standalone/esm/vis-network';
-import { WS_META, wsMeta, getDriver } from '../api/neo4j.js';
+import { WS_META, wsMeta, getDriver } from '../composables/useNeo4j.js';
 import {
   queryData, streamRag, fetchChunk, splitSep, openOriginal
-} from '../api/lightrag.js';
+} from '../composables/useLightragApi.js';
 import { mdToHtml, waitingHtml } from '../utils/markdown.js';
 
 const vis = { DataSet, Network };

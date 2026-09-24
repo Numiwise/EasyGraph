@@ -76,7 +76,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
-import { WS_META, listWorkspaceCounts, getDriver } from '../api/neo4j.js';
+import { WS_META, listWorkspaceCounts, getDriver } from '../composables/useNeo4j.js';
 
 /* ----- 响应式状态（原 data()） ----- */
 const counts = ref({});

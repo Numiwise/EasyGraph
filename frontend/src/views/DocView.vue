@@ -27,8 +27,8 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { wsMeta } from '../api/neo4j.js';
-import { kbUrl } from '../api/lightrag.js';
+import { wsMeta } from '../composables/useNeo4j.js';
+import { kbUrl } from '../composables/useLightragApi.js';
 import { renderMarkdown } from '../utils/markdown.js';
 
 /* ----- 响应式状态 ----- */

@@ -123,12 +123,11 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, markRaw } from 'vue';
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import neo4j from 'neo4j-driver';
 import { DataSet, Network } from 'vis-network/standalone/esm/vis-network';
-import { WS_META, getDriver, wsMeta } from '../api/neo4j.js';
-import { fetchChunk, splitSep, openOriginal } from '../api/lightrag.js';
+import { getDriver, wsMeta } from '../composables/useNeo4j.js';
+import { fetchChunk, splitSep, openOriginal } from '../composables/useLightragApi.js';
 
 const vis = { DataSet, Network };
 
