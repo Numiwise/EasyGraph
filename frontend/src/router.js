@@ -8,7 +8,7 @@
  * ============================================================ */
 import { createRouter, createWebHashHistory } from 'vue-router';
 
-import HomeView from './views/HomeView.js';
+import HomeView from './views/HomeView.vue';
 import GraphView from './views/GraphView.js';
 import QueryView from './views/QueryView.js';
 import DocView from './views/DocView.js';
