@@ -56,58 +56,35 @@
 
         <!-- 自定义属性表（Neo4j properties 中除保留键外的字段） -->
         <div v-if="side.extraProps && side.extraProps.length" class="attrs">
-          <div class="section-head" @click="attrsOpen = !attrsOpen">
-            <span class="sh-title">属性（{{ side.extraProps.length }}）</span>
-            <span class="sh-tog">{{ attrsOpen ? '收起 ▲' : '展开 ▼' }}</span>
-          </div>
-          <table v-show="attrsOpen" class="attrs-table">
-            <tbody>
-              <tr v-for="p in side.extraProps" :key="p.key">
-                <th>{{ p.label }}</th>
-                <td>{{ p.value }}</td>
-              </tr>
-            </tbody>
-          </table>
+          <AttrTable
+            :rows="side.extraProps"
+            :open="attrsOpen"
+            @toggle="attrsOpen = !attrsOpen" />
         </div>
 
-        <div v-if="side.segs && side.segs.length" class="chunks">
-          <div v-for="(s,i) in side.segs" :key="'n'+i" class="chunk" :class="{collapsed: !s.expanded}">
-            <div class="chunk-head" @click="s.expanded = !s.expanded">
-              <span class="chunk-idx">原文片段 {{ i+1 }}</span>
-              <span class="chunk-tog">{{ s.expanded ? '收起 ▲' : '展开 ▼' }}</span>
-            </div>
-            <div v-show="s.expanded" class="chunk-scroll">
-              <div v-if="!s.loading && s.para" class="chunk-para">{{ s.para }}</div>
-              <div v-else-if="s.loading" class="chunk-para dim">原文片段载入中…</div>
-              <div v-else class="chunk-para dim">（未检索到该原文片段）</div>
-            </div>
-            <!-- 前两个 chunk 始终显示原文按钮；第 3+ 按钮跟随展开态 -->
-            <button class="isrc-open chunk-open" :class="{disabled: !s.file}"
-              v-show="i < 2 || s.expanded"
-              :disabled="!s.file" @click.stop="openOriginalFile(s.file)">
-              {{ s.file ? '查看原文网页' : '暂无原文链接' }}
-            </button>
-          </div>
-        </div>
-        <div v-else class="chunks">
-          <div class="chunk">
-            <div class="chunk-head">原文片段</div>
-            <div class="chunk-scroll"><span class="dim">（该节点未记录原文来源）</span></div>
-            <button class="isrc-open chunk-open disabled" disabled>暂无原文链接</button>
-          </div>
-        </div>
+        <ChunkPanel
+          v-if="side.segs && side.segs.length"
+          :src-ids="side.srcIds"
+          :file-paths="side.fps"
+          :ws="ws"
+          @open-original="openOriginalFile" />
+        <ChunkPanel
+          v-else
+          :src-ids="[]"
+          :file-paths="[]"
+          :ws="ws"
+          @open-original="openOriginalFile" />
       </div>
     </div>
     <div id="legend" v-show="typeList.length">
-      <div class="lhead">实体类型（勾选筛选，选择会被记住）</div>
-      <el-checkbox class="legend-ck legend-batch" :model-value="allSelected"
-        @change="selectAllTypes">全选</el-checkbox>
-      <el-checkbox class="legend-ck legend-batch" :model-value="noneSelected"
-        @change="selectNoneTypes">全部不选</el-checkbox>
-      <el-checkbox v-for="t in typeList" :key="t" class="legend-ck"
-        :model-value="selectedTypes.includes(t)" @change="toggleType(t)">
-        <span class="sw" :style="{background: typeColors[t] || '#888'}"></span>{{ t }}
-      </el-checkbox>
+      <TypeLegend
+        title="实体类型（勾选筛选，选择会被记住）"
+        :type-list="typeList"
+        :type-colors="typeColors"
+        :selected-types="selectedTypes"
+        @toggle="toggleType"
+        @select-all="selectAllTypes"
+        @select-none="selectNoneTypes" />
     </div>
     <!-- 全屏加载遮罩：取数阶段 + 布局定位阶段都保持，直到图谱真正可见 -->
     <div id="loading" v-show="loading || stabilizing">
@@ -128,6 +105,9 @@ import { getDriver, wsMeta } from '../composables/useNeo4j.js';
 import { fetchChunk, splitSep, openOriginal } from '../composables/useLightragApi.js';
 import WorkspaceBadge from '../components/WorkspaceBadge.vue';
 import WorkspaceSelect from '../components/WorkspaceSelect.vue';
+import TypeLegend from '../components/TypeLegend.vue';
+import ChunkPanel from '../components/ChunkPanel.vue';
+import AttrTable from '../components/AttrTable.vue';
 
 const vis = { DataSet, Network };
 

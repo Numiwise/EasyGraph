@@ -206,18 +206,10 @@
               </div>
 
               <div v-if="sel.extraProps && sel.extraProps.length" class="attrs">
-                <div class="section-head" @click="attrsOpen = !attrsOpen">
-                  <span class="sh-title">属性（{{ sel.extraProps.length }}）</span>
-                  <span class="sh-tog">{{ attrsOpen ? '收起 ▲' : '展开 ▼' }}</span>
-                </div>
-                <table v-show="attrsOpen" class="attrs-table">
-                  <tbody>
-                    <tr v-for="p in sel.extraProps" :key="p.key">
-                      <th>{{ p.label }}</th>
-                      <td>{{ p.value }}</td>
-                    </tr>
-                  </tbody>
-                </table>
+                <AttrTable
+                  :rows="sel.extraProps"
+                  :open="attrsOpen"
+                  @toggle="attrsOpen = !attrsOpen" />
               </div>
 
               <ChunkPanel
@@ -277,6 +269,7 @@ import WorkspaceSelect from '../components/WorkspaceSelect.vue';
 import TypeLegend from '../components/TypeLegend.vue';
 import ChunkPanel from '../components/ChunkPanel.vue';
 import CiteHoverBubble from '../components/CiteHoverBubble.vue';
+import AttrTable from '../components/AttrTable.vue';
 
 const vis = { DataSet, Network };
 
