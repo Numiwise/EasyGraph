@@ -1,16 +1,26 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""清理 6 个子图工作区：
-  1. 删除孤立点（无任何连线）
-  2. 只保留最大弱连通分量（核心社群），删除其余小碎片节点
-  3. 扫描并报告疑似同义重复实体（供人工合并）
-用法: python clean_graph.py [g01|g02|...|all]
+"""
+clean_graph.py —— 清理 6 个子图工作区
+==================================================================
+业务用途：在做完 LightRAG 抽取后，图里会有不少\"噪音节点\"，本脚本做三步清理：
+  1. 删除孤立点（无任何连线）—— 没跟别人连上，多半是抽取噪声
+  2. 只保留\"最大弱连通分量\"（核心社群），删除其余小碎片节点
+  3. 扫描并报告疑似同义重复实体（供人工合并，不自动删）
+
+用法:
+    python clean_graph.py [g01|g02|...|all]     # 不传参数 = all（处理全部 7 个，含 g00）
+
+说明：下列 AUTH 是本机/内网开发库的固定凭据（本地运行用）；如果推到公网仓库，
+       请务必改为读环境变量（NEO4J_PASSWORD），不要带真实密码。
 """
 import sys
 from collections import Counter, deque, defaultdict
 from neo4j import GraphDatabase
 
-URI = "bolt://localhost:7688"   # 展示版 neo4j-display（清理后的精简图）
+# ===== 配置 =====
+# 展示版 neo4j-display（清理后的精简图）。注意：这里端口 7688 是反代端口。
+URI = "bolt://localhost:7688"
 AUTH = ("neo4j", "LightRAG2026neo4j")
 LABELS = ["g00_master_all", "g01_people_literature", "g02_places_routes", "g03_varieties",
           "g04_history_institutions", "g05_lingnan_liwan", "g06_industry_tech"]

@@ -1,5 +1,8 @@
 /* ============================================================
  * main.css —— 全局基础 + 跨视图共性组件
+ *   - CSS 变量、reset、Element Plus 主题微调
+ *   - 跨视图共性样式：.chunk（节点原文片段）、.section-head / .descr / .attrs
+ *     （节点详情面板分区）、.isrc-open（原文打开按钮）、图例复选框适配等
  * 设计：白底 + 深色卡片 + 强彩边 + 强化投影（v3 配色）
  *   - 页面背景：饱和度更低、亮度略降的浅蓝紫渐变（与卡片拉开色阶）
  *   - 面板/卡片：从浅蓝调 → 深蓝调（#eaf1fb → #dde7f6 → #c9d8ee），
@@ -8,11 +11,9 @@
  *   - 查询页：保持「彩色背景 + 白色对话框」原则不变
  *   - 主色 #1f6feb（品牌蓝），强调 #b45309（琥珀）
  *   - 文本三级：#0f1a2a(主) / #34465c(次) / #6b7a8f(弱)
- * 个性样式已迁出到各 view css：
- *   - src/styles/home.css   —— 首页 HomeView
- *   - src/styles/graph.css  —— 图谱浏览页 GraphView
- *   - src/styles/query.css  —— 智能问答页 QueryView
- *   - src/styles/doc.css    —— 原文浏览页 DocView
+ * 样式组织（Vue 3 习惯）：
+ *   - 本文件 main.css —— 全局 + 跨视图共性
+ *   - 各 view 的专属样式在 views/*.vue 的 <style scoped> 内（与组件内聚、scoped 隔离）
  * ============================================================ */
 :root {
   --bg: #e7ecf5;

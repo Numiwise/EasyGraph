@@ -86,17 +86,11 @@ docker compose exec neo4j-display bash -c 'ss -tlnp | grep 7687'
 
 **症状**：样式丢失或混乱。
 
-**排查**：检查 `frontend/index.html` 引入了所有 5 个 CSS：
+**排查**：CSS 由 `frontend/src/main.js` 引入（`main.css` + Element Plus 主题），其余全部内联在 `frontend/src/views/*.vue` 的 `<style scoped>` 中。先确认 `main.css` 没被改动、然后看对应 view 的 scoped 块。
 
-```html
-<link rel="stylesheet" href="src/styles/main.css">
-<link rel="stylesheet" href="src/styles/home.css">
-<link rel="stylesheet" href="src/styles/graph.css">
-<link rel="stylesheet" href="src/styles/query.css">
-<link rel="stylesheet" href="src/styles/doc.css">
-```
-
-CSS 已按 view 拆分：共性在 `main.css`，个性在各 view css。
+样式组织（Vue 3 习惯）：
+- `frontend/src/styles/main.css` —— 全局 + 跨视图共性组件（chunk/descr/attrs/isrc-open 等）
+- `frontend/src/views/*.vue` 的 `<style scoped>` —— 各 view 专属，与组件内聚
 
 ## 6. AI 后加工（深度加工）
 
@@ -158,7 +152,8 @@ python -m pytest tests/test_smoke.py::test_docker_compose_valid_yaml -v
 | 错误 | 解决 |
 |------|------|
 | `PyYAML 未安装` | `pip install pyyaml` |
-| `缺少 CSS: graph.css` | 确认 `frontend/src/styles/` 有 5 个 css |
+| `main.css 找不到` | 确认 `frontend/src/styles/main.css` 存在，且 `frontend/src/main.js` 顶部有 `import './styles/main.css'` |
+| 某个 view 样式没生效 | 看 `frontend/src/views/<View>.vue` 末尾的 `<style scoped>` 块 |
 | `原始资料 manifest 不存在` | 首次未 ingest，先跑 `docker compose exec lightrag /lightrag-ingest` |
 
 ## 仍然解决不了？

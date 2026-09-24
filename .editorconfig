@@ -1,0 +1,23 @@
+# ============================================================
+# EditorConfig —— 跨 IDE 统一代码风格
+#   Trae / VSCode / WebStorm / IntelliJ 都会自动读取本文件
+#   解决：行尾空格 / tab vs space / 换行符 / 末尾空行 等常见分歧
+# ============================================================
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.md]
+trim_trailing_whitespace = false   # markdown 行尾两个空格 = 强制换行，不要 trim
+
+[*.py]
+indent_size = 4
+
+[Makefile]
+indent_style = tab

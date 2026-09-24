@@ -1,13 +1,30 @@
-﻿<!--
+<!--
   QueryView.vue —— 智能问答页（路由 /query?ws=<workspace>）
+  ------------------------------------------------------------
+  业务用途：
+    这是项目最核心的"问 AI"页面。路由 /query?ws=<workspace> 进入后，
+    用户可以：
+      1) 直接提问（也可点"推荐问题"chip 一键提问）
+      2) 切换 workspace（图谱）和 mode（mix/local/global/hybrid/naive/bypass）
+      3) 实时收到 AI 流式回答（打字机效果）
+      4) 看到回答中 [1][2] 这种引用编号 → 鼠标悬停显示"原文片段"气泡
+      5) 点击引用直接打开原文网页（_origin 优先）/ DocView 兜底
+      6) 右侧"走过的子图"展示本次提问涉及的实体和关系
+      7) 点击图节点 → 弹出该节点的属性、原文片段
+      8) 历史对话：所有对话保存在 localStorage，可以切换 / 重命名 / 删除
 
-  Vue 3 重构：SFC + Composition API + scoped style。
-  模板 1:1 移植自旧版 Options API；CSS 拆入 <style scoped>。
+  涉及的概念（给初学者）：
+    - Composition API：所有逻辑都在 <script setup> 里通过函数组织。
+    - localStorage：浏览器原生的小型持久化存储（key/value 字符串）。
+    - 流式 NDJSON：composables/useLightragApi.js 的 streamRag() 已经处理了。
+    - AbortController / EventTarget：暂未使用，未来可以加"取消生成"。
+    - 键盘事件修饰符：@keydown.enter.exact.prevent 这种是 Vue 3 的修饰符连写。
 -->
 <template>
+  <!-- 整页根节点。"started" 类用于区分"未提问 / 已提问"两种布局 -->
   <div class="q-page" :class="{ 'started': started }">
 
-    <!-- 顶部工具栏（始终保留） -->
+    <!-- 顶部工具栏：无论是否提问过都存在 -->
     <div id="qbar">
       <span class="brand">
         <WorkspaceBadge :meta="currentMeta" />
@@ -15,7 +32,9 @@
       </span>
       <el-button size="small" @click="goHome">‹ 导航</el-button>
       <el-button size="small" @click="goGraph">图谱视图</el-button>
+      <!-- + 新建对话：把当前对话归档到左侧列表，开启全新对话 -->
       <el-button size="small" type="primary" plain @click="newChat()" title="把当前对话归档到左侧列表，开启全新对话">+ 新建对话</el-button>
+      <!-- 历史按钮：根据 showHistory 切换"展开 / 收起" -->
       <el-button size="small"
         :type="showHistory ? 'primary' : ''"
         @click="toggleHistory"
@@ -35,6 +54,7 @@
 
     <div class="q-row">
 
+      <!-- 左侧抽屉：历史对话列表（默认收起为细长一条，点击汉堡按钮展开） -->
       <aside class="hd-side" :class="{ open: showHistory }">
         <div class="hd-toggle" @click="toggleHistory"
           :title="showHistory ? '收起历史对话' : '展开历史对话'">
@@ -57,9 +77,10 @@
             <el-input v-model="historyFilter" size="small" clearable placeholder="搜索对话…"></el-input>
           </div>
 
+          <!-- 对话列表（v-show 仅控制整体可见性，filteredConvs 是按 historyFilter 过滤后的） -->
           <div class="hd-list" @click="cancelRename">
             <div v-if="filteredConvs.length === 0" class="hd-empty">
-              <div class="hd-empty-icon">��</div>
+              <div class="hd-empty-icon">📭</div>
               <div v-if="historyFilter">没有匹配「{{ historyFilter }}」的对话</div>
               <div v-else>暂无历史对话<br><span class="hd-empty-tip">点右上角「+ 新建」开始一段新对话</span></div>
             </div>
@@ -79,7 +100,7 @@
                 <button type="button" class="hd-act-btn"
                   @click.stop="startRename(c.id)" title="重命名">✎</button>
                 <button type="button" class="hd-act-btn hd-act-del"
-                  @click.stop="deleteConv(c.id)" title="删除">��</button>
+                  @click.stop="deleteConv(c.id)" title="删除">🗑</button>
               </div>
             </div>
           </div>
@@ -90,13 +111,14 @@
 
       <div class="q-body">
 
-        <!-- 初始（居中）布局 -->
+        <!-- 初始居中布局：未提问时 -->
         <div id="qcenter" v-if="!started">
           <div class="chat-card">
             <div class="chat-head">
               <WorkspaceBadge :meta="currentMeta" />
               <span class="chat-title">智能问答 · {{ currentMeta.name }}</span>
             </div>
+            <!-- 进度条：4 步（解析 / 检索 / 取原文 / 组织答案） -->
             <div class="progress" v-show="showProgress">
               <div class="pbar"><span class="pfill" :style="{ width: ((stepIdx+1)/steps.length*100) + '%' }"></span></div>
               <div class="steps">
@@ -105,23 +127,27 @@
                 </div>
               </div>
             </div>
+            <!-- 推荐问题：未提问时显示，点击直接 runQuery(p) -->
             <div v-if="messages.length === 0" class="presets-inline">
               <div class="pc-lbl">推荐问题（点击直接提问）</div>
               <div class="pc-list">
                 <span v-for="p in presets" :key="p" class="pc-chip" @click="runQuery(p)">{{ p }}</span>
               </div>
             </div>
+            <!-- 聊天滚动区 -->
             <div ref="chatScroll" class="chat-scroll" @click="onChatClick"
               @mouseover="onChatOver" @mousemove="onChatMove" @mouseleave="onChatLeave">
               <div class="bubbles">
                 <div v-for="(m, i) in messages" :key="i" class="bubble-row" :class="m.role">
                   <div v-if="m.role === 'ai'" class="avatar">AI</div>
+                  <!-- AI 气泡用 v-html 注入 mdToHtml 输出；用户气泡用 escapeHtml 转义 -->
                   <div class="bubble" :class="m.role" v-html="m.role === 'ai' ? (m.html || waitingHtml()) : escapeHtml(m.text)"></div>
                   <div v-if="m.role === 'user'" class="avatar me">你</div>
                 </div>
                 <div class="bubbles-end"></div>
               </div>
             </div>
+            <!-- 输入区：支持 enter / shift+enter / ctrl+enter 三种提交组合 -->
             <div class="chat-input">
               <el-input v-model="query" class="qbar-input"
                 placeholder="输入问题，回车查询（Shift+Enter 换行）"
@@ -134,7 +160,7 @@
           </div>
         </div>
 
-        <!-- 提问后布局 -->
+        <!-- 已提问后布局：左对话 + 右子图 -->
         <div v-else id="qmain">
           <div id="qleft">
             <div class="chat-head sub">
@@ -172,6 +198,7 @@
           </div>
 
           <div id="qright">
+            <!-- "子图生长中"全屏遮罩（第一次才显示，被 hideOnLoaded 自动消失） -->
             <div v-if="loading && entities.length === 0" class="grow-overlay">
               <div class="grow-card">
                 <div class="grow-spin"></div>
@@ -190,7 +217,7 @@
             </div>
             <div id="qnet"></div>
 
-            <!-- 节点详情面板 -->
+            <!-- 节点/关系详情面板（点击子图节点时显示） -->
             <div v-if="sel.visible" id="qside">
               <h3>{{ sel.title }}</h3>
               <span class="tag">{{ sel.type }}</span>
@@ -226,7 +253,7 @@
                 @open-original="openOriginalFile" />
             </div>
 
-            <!-- 图例（使用通用 TypeLegend 组件） -->
+            <!-- 图例（用通用 TypeLegend 组件） -->
             <div v-show="typeList.length" id="qlegend" class="legend-host">
               <TypeLegend
                 :type-list="typeList"
@@ -241,7 +268,7 @@
       </div>
     </div>
 
-    <!-- 引用悬浮气泡（使用通用 CiteHoverBubble 组件） -->
+    <!-- 引用悬浮气泡（用通用 CiteHoverBubble 组件） -->
     <CiteHoverBubble
       :visible="hover.visible"
       :x="hover.x" :y="hover.y"
@@ -252,9 +279,9 @@
 <script setup>
 /* ============================================================
  * QueryView 业务逻辑（Composition API）
- *  - 状态 / 计算属性 / 工具方法 / 会话存档 / 引用气泡 / 子图构建 / 生命周期
- *  - 不依赖模板细节，可独立阅读
  * ============================================================ */
+
+// 从 vue 引入组合式 API
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { DataSet, Network } from 'vis-network/standalone/esm/vis-network';
@@ -264,6 +291,7 @@ import {
 } from '../composables/useLightragApi.js';
 import { mdToHtml, waitingHtml } from '../utils/markdown.js';
 
+// 引入子组件
 import WorkspaceBadge from '../components/WorkspaceBadge.vue';
 import WorkspaceSelect from '../components/WorkspaceSelect.vue';
 import TypeLegend from '../components/TypeLegend.vue';
@@ -273,30 +301,40 @@ import AttrTable from '../components/AttrTable.vue';
 
 const vis = { DataSet, Network };
 
-/* ====== 路由 ====== */
+/* ============================================================
+ * 路由
+ * ============================================================ */
 const route = useRoute();
 const router = useRouter();
 
-/* ====== 响应式状态 ====== */
+/* ============================================================
+ * 响应式状态（data() 等价物）
+ * ============================================================ */
+// 当前 workspace（默认总图谱）；从 URL 读 ?ws=
 const ws = ref('g00_master_all');
+// workspace 选项（暂时保留，未在模板中使用，预留给后续多选需求）
 const wsOptions = WS_META.map(m => ({ v: m.id, t: m.name }));
+// 当前查询模式
 const mode = ref('mix');
+// 6 种查询模式 + 各自的简短说明（被 tooltip 使用）
 const modes = [
   { v: 'mix', t: '综合（推荐）',
-    tip: 'mix：同时查知识图谱和原文。问「这个人物做过什么」「这些事物怎么连起来」之类综合问题时效果最好，一般先用它。' },
+    tip: 'mix：同时查知识图谱和原文。问"这个人物做过什么""这些事物怎么连起来"之类综合问题时效果最好。' },
   { v: 'hybrid', t: '混合检索',
-    tip: 'hybrid：把关键词匹配和语义匹配两条路的结果合并起来查。适合「既要命中具体名词，也要理解意思」的提问。' },
+    tip: 'hybrid：把关键词匹配和语义匹配两条路的结果合并起来查。适合既要命中具体名词，也要理解意思的提问。' },
   { v: 'local', t: '局部上下文',
-    tip: 'local：以图中实体为中心，向外找它的邻居节点与原文。适合问「某物/某人具体细节、与什么相关」。' },
+    tip: 'local：以图中实体为中心，向外找邻居节点与原文。适合问"某物/某人具体细节、与什么相关"。' },
   { v: 'global', t: '全局主题',
-    tip: 'global：从整张图的高层关系出发抓主题脉络。适合问「总体上讲了哪几条主线、哪些大趋势」。' },
+    tip: 'global：从整张图的高层关系出发抓主题脉络。适合问总体上讲了哪几条主线、哪些大趋势。' },
   { v: 'naive', t: '纯原文',
     tip: 'naive：只做原文段落检索，不用图谱关系。适合纯文本型问题；当其他模式有杂讯时可作对照。' },
   { v: 'bypass', t: '只检索不生成',
     tip: 'bypass：不调用 LLM，直接把检索到的原文片段返回。用于快速核对资料来源、或排查检索效果。' }
 ];
 
+// 输入框中的查询文本
 const query = ref('');
+// 推荐问题 chip（按 workspace 不同给不同的预设）
 const presetsByWs = {
   g00_master_all: [
     '为什么南方的物产常出现在北方的故事里？',
@@ -341,53 +379,76 @@ const presetsByWs = {
     '「12221 市场体系」是怎样运作的？'
   ]
 };
+
+// 已开始过对话的标志（用来切换初始布局 vs 提问后布局）
 const started = ref(false);
+// 正在跑查询（loading 期间输入框禁用、按钮转圈）
 const loading = ref(false);
+// 顶栏红/绿点 + 状态文字
 const status = reactive({ ok: false, text: '' });
+// 步骤索引（0=解析问题 1=图谱检索 2=取原文 3=组织答案）
 const stepIdx = ref(0);
+// 4 步名称
 const steps = ['解析问题', '图谱检索', '取回原文', '组织答案'];
+// 聊天记录：[{ role:'user'|'ai', text, html, ts, refs?, invalid? }, ...]
 const messages = ref([]);
+// 本次问答命中的实体 + 关系
 const entities = ref([]);
 const relationships = ref([]);
+// 关键词（high/low 两层）
 const keywords = ref({ high: [], low: [] });
-const typeList = ref([]);
-const typeColors = ref({});
-const selectedTypes = ref([]);
+// 图例相关
+const typeList = ref([]);          // 当前 workspace 涉及的 entity_type 列表
+const typeColors = ref({});        // 类型 → 颜色
+const selectedTypes = ref([]);     // 当前勾选
+// 右侧详情面板（节点 / 关系详情）
 const sel = reactive({ visible: false, kind: '', title: '', type: '', descr: '',
   props: {}, extraProps: [], srcIds: [], fps: [], segs: [] });
+// 折叠态
 const descrOpen = ref(true);
 const attrsOpen = ref(true);
+// 当前回答的引用列表（来自最后一次 streamRag 的 references）
 const lastRefs = ref([]);
+// 引用悬浮气泡的状态
 const hover = reactive({ visible: false, ref: '', x: 0, y: 0, title: '', content: '' });
+// 是否显示顶部进度条
 const showProgress = ref(false);
-const aiPolish = ref(false);
-const polishState = ref('idle');
 
-const conversations = ref([]);
-const currentConvId = ref(null);
-const showHistory = ref(false);
-const historyFilter = ref('');
-const renamingId = ref(null);
-const renamingTitle = ref('');
+// 会话存档
+const conversations = ref([]);     // 左侧列表
+const currentConvId = ref(null);   // 当前会话的 id
+const showHistory = ref(false);    // 历史面板展开
+const historyFilter = ref('');     // 搜索对话的输入
+const renamingId = ref(null);      // 正在重命名的对话 id
+const renamingTitle = ref('');     // 重命名输入
 
+// vis-network 实例
 let net = null;
 let nodesDS = null;
 let edgesDS = null;
+// 引用气泡的 timer id
 let _hoverTimer = null;
+// 卸载监听器句柄（用于清除事件监听）
 let _onUnload = null;
+// 重命名 input 的 DOM 引用（Map id→input 节点）
 const renameRefs = new Map();
+// 给模板用的 ref：聊天滚动容器
 function setRenameRef(el, id) {
   if (el) renameRefs.set(id, el);
 }
 const chatScroll = ref(null);
 const chatScroll2 = ref(null);
 
-/* ====== 计算属性 ====== */
+/* ============================================================
+ * 计算属性
+ * ============================================================ */
 const currentMeta = computed(() => wsMeta(ws.value));
 const selTypes = computed(() => selectedTypes.value);
+// 推荐问题按 workspace 切换
 const presets = computed(() => presetsByWs[ws.value] || presetsByWs.g00_master_all);
 const allSelected = computed(() => typeList.value.length > 0 && selectedTypes.value.length === typeList.value.length);
 const noneSelected = computed(() => selectedTypes.value.length === 0);
+// 按搜索词过滤历史对话
 const filteredConvs = computed(() => {
   const arr = conversations.value || [];
   const kw = (historyFilter.value || '').trim().toLowerCase();
@@ -398,22 +459,31 @@ const filteredConvs = computed(() => {
   );
 });
 
-/* ====== 工具方法 ====== */
+/* ============================================================
+ * 工具方法
+ * ============================================================ */
+// 简单的 HTML 转义（用户文本气泡用）
 function escapeHtml(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/\n/g, '<br>');
 }
+// 设置状态（统一处理 ok/text）
 function setStatus(ok, text) {
   status.ok = !!ok;
   status.text = String(text || '');
 }
+// Shift+Enter：往 query 里追加一个换行
 function appendNewline() { query.value += '\n'; }
+// 等待 ms 毫秒（用 setTimeout 返回 Promise）
 function waitFrame(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// 导航：回到首页
 function goHome() { router.push('/'); }
+// 导航：跳到图谱视图
 function goGraph() { router.push('/graph/' + ws.value); }
 
+// 打开原文（chunk 旁的按钮）：openOriginal 自己处理 _origin、docx 等
 async function openOriginalFile(fp) {
   if (!fp) return;
   const ok = await openOriginal(fp, ws.value);
@@ -426,6 +496,7 @@ function openDoc(fp) {
   window.open(url, '_blank');
 }
 
+// 提交前自检：mode/topK/chunkTopK 等值是否合法（绕过后端 422 之前先在前端挡掉）
 function validateOpt(opt) {
   const ALLOWED_MODES = ['mix', 'local', 'global', 'hybrid', 'naive', 'bypass'];
   if (!opt || typeof opt !== 'object') return '参数不合法';
@@ -439,20 +510,30 @@ function validateOpt(opt) {
   return '';
 }
 
-/* ====== 会话存档 ====== */
+/* ============================================================
+ * 会话存档（localStorage）
+ * ------------------------------------------------------------
+ * 三类 key：
+ *   qchat_idx_<ws>           ：会话列表（meta）
+ *   qchat_<ws>_<convId>      ：单个会话内容（payload）
+ *   qchat_cur_<ws>           ：当前活跃会话 id
+ * ============================================================ */
 function listKey() { return 'qchat_idx_' + (ws.value || 'g00_master_all'); }
-function curKey() { return 'qchat_cur_' + (ws.value || 'g00_master_all'); }
+function curKey()  { return 'qchat_cur_' + (ws.value || 'g00_master_all'); }
 function convKey(id) { return 'qchat_' + (ws.value || 'g00_master_all') + '_' + id; }
 function histKey() { return curKey(); }
+// 生成会话 id：c + 时间戳 base36 + 随机 base36
 function genConvId() {
   return 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
+// 自动标题：拿首条用户问题的前 24 字符
 function autoTitle(arr) {
   const um = (arr || []).find(m => m.role === 'user' && m.text);
   if (!um) return '新对话';
   const t = String(um.text).trim().split('\n')[0].slice(0, 24);
   return t || '新对话';
 }
+// 友好时间显示："刚刚" / "N 分钟前" / "HH:MM" / "昨天" / "MM-DD" / "YYYY-MM-DD"
 function fmtTime(ts) {
   if (!ts) return '';
   const now = Date.now();
@@ -476,6 +557,7 @@ function fmtTime(ts) {
     (d.getMonth() + 1).toString().padStart(2, '0') + '-' +
     d.getDate().toString().padStart(2, '0');
 }
+// 读取左侧列表
 function loadConvList() {
   try {
     const raw = localStorage.getItem(listKey());
@@ -484,11 +566,13 @@ function loadConvList() {
     return Array.isArray(arr) ? arr : [];
   } catch (e) { return []; }
 }
+// 保存左侧列表
 function saveConvList() {
   try {
     localStorage.setItem(listKey(), JSON.stringify(conversations.value || []));
   } catch (e) { /* 容量超限等 → 静默忽略 */ }
 }
+// 保存当前会话（含 messages / entities / 等）到 localStorage
 function saveCurrentConv() {
   if (!messages.value.length && !entities.value.length) return;
   const msgs = messages.value.filter(m => m.role === 'user' || (m.role === 'ai' && m.html));
@@ -528,12 +612,16 @@ function saveCurrentConv() {
   saveConvList();
   try { localStorage.setItem(curKey(), currentConvId.value); } catch (e) {}
 }
+// saveChat 是 saveCurrentConv 的别名（更短）
 function saveChat() { saveCurrentConv(); }
 
+// 进入页面时恢复"列表 + 当前会话"
 function restoreChat() {
   conversations.value = loadConvList();
   restoreCurrent();
 }
+
+// 单独恢复当前会话（也用于切换 workspace 后重新载入）
 function restoreCurrent() {
   let cur = null;
   try { cur = localStorage.getItem(curKey()); } catch (e) {}
@@ -565,6 +653,7 @@ function restoreCurrent() {
   nextTick(() => scrollChatToBottom());
 }
 
+// 新建对话（skipArchive=true 时不归档老的）
 function newChat(skipArchive) {
   if (!skipArchive && (messages.value.length || entities.value.length)) saveCurrentConv();
   currentConvId.value = null;
@@ -590,6 +679,7 @@ function newChat(skipArchive) {
   cancelRename();
 }
 
+// 加载某条历史对话
 function loadConv(id) {
   if (!id) return;
   if (id === currentConvId.value) { closeHistory(); return; }
@@ -636,6 +726,7 @@ function loadConv(id) {
   nextTick(() => scrollChatToBottom());
 }
 
+// 删除一条历史对话（带二次确认）
 function deleteConv(id) {
   if (!id) return;
   const meta = (conversations.value || []).find(c => c.id === id);
@@ -647,6 +738,7 @@ function deleteConv(id) {
   if (id === currentConvId.value) newChat(true);
 }
 
+// 进入重命名态（把焦点放到 input）
 function startRename(id) {
   const meta = (conversations.value || []).find(c => c.id === id);
   if (!meta) return;
@@ -673,6 +765,7 @@ function cancelRename() {
   renamingTitle.value = '';
 }
 
+// 展开/收起历史面板
 function toggleHistory() {
   showHistory.value = !showHistory.value;
   if (showHistory.value) cancelRename();
@@ -695,6 +788,7 @@ function closeHistory() {
   });
 }
 
+// 点击 [n] 引用：在 lastRefs 中找到对应文件并打开
 async function openRef(n) {
   const idx = Number(n) - 1;
   const ref = lastRefs.value && lastRefs.value[idx];
@@ -705,7 +799,10 @@ async function openRef(n) {
   await openOriginalFile(ref.file_path);
 }
 
-/* ====== 引用悬浮气泡 ====== */
+/* ============================================================
+ * 引用悬浮气泡（hover）
+ * ============================================================ */
+// 延迟隐藏气泡（用户从引用号滑到气泡的窗口期）
 function scheduleHoverHide(delay) {
   if (_hoverTimer) clearTimeout(_hoverTimer);
   _hoverTimer = setTimeout(() => { hover.visible = false; _hoverTimer = null; }, delay != null ? delay : 450);
@@ -714,6 +811,7 @@ function cancelHoverHide() {
   if (_hoverTimer) { clearTimeout(_hoverTimer); _hoverTimer = null; }
 }
 function hideHover() { cancelHoverHide(); hover.visible = false; }
+// 鼠标进入"引用号"时显示气泡
 function onChatOver(ev) {
   const t = ev.target;
   if (!t || !t.closest || !t.closest('.cite')) return;
@@ -730,6 +828,7 @@ function onChatOver(ev) {
   const content = (ref.content && ref.content.length)
     ? ref.content.join('\n\n')
     : (ref.file_path || '（无原文内容）');
+  // 气泡定位：默认在鼠标右下角；超出视口则镜像翻转
   const pad = 16;
   const vw = window.innerWidth, vh = window.innerHeight;
   const w = 400, h = Math.min(520, vh - 60);
@@ -755,7 +854,15 @@ function onBubbleEnter() { cancelHoverHide(); }
 function onBubbleMove() { cancelHoverHide(); }
 function onBubbleLeave() { hideHover(); }
 
-/* ====== 主查询 ====== */
+/* ============================================================
+ * 主查询入口
+ * ------------------------------------------------------------
+ * 流程：
+ *   1. validateOpt 自检（mode/topK 等）
+ *   2. 推入用户消息 + AI 占位消息
+ *   3. 同步发 queryData()、await streamRag()（带 onToken 增量更新）
+ *   4. 把 entities/relationships/keywords 写到 ref，由 buildGraph() 渲染右子图
+ * ============================================================ */
 async function runQuery(preset) {
   if (preset != null) query.value = preset;
   const q = query.value.trim();
@@ -784,20 +891,25 @@ async function runQuery(preset) {
   status.text = '正在为您查找资料…';
   stepIdx.value = 0;
 
+  // 把用户消息入栈
   messages.value.push({ role: 'user', text: q, ts: Date.now() });
   query.value = '';
 
+  // AI 占位消息（reactive 让流式回调里 push progress 也能触发 UI 更新）
   const aiMsg = reactive({ role: 'ai', text: '', html: '', ts: Date.now(), refs: [] });
   messages.value.push(aiMsg);
   nextTick(() => saveChat());
 
   const t0 = performance.now();
   try {
+    // queryData() 与 streamRag() 并行：前者拉"实体 + 关系"，后者是流式生成。
+    // queryData 是独立的 Promise，错误也要 catch 掉（不能让对侧失败被吞）
     const dataP = queryData(ws.value, q, opt).catch(err => ({ entities: [], relationships: [], chunks: [], metadata: {}, _err: err.message || String(err) }));
 
     stepIdx.value = 1;
     await waitFrame(80);
 
+    // 流式问答：onToken 在每个 token 进来时调用，更新 aiMsg.text/html 并自动滚到底
     const ans = await streamRag(ws.value, q, opt, (delta, full) => {
       aiMsg.text = full;
       aiMsg.html = mdToHtml(full);
@@ -812,6 +924,7 @@ async function runQuery(preset) {
     aiMsg.refs = lastRefs.value;
     aiMsg.html = mdToHtml(aiMsg.text);
 
+    // 把检索到的实体/关系/关键词填到 ref，buildGraph() 会异步渲染右子图
     entities.value = data.entities || [];
     relationships.value = data.relationships || [];
     const kw = (data.metadata && data.metadata.keywords) || {};
@@ -836,10 +949,12 @@ async function runQuery(preset) {
   }
 }
 
+// 聊天容器滚到底
 function scrollChatToBottom() {
   const el = chatScroll2.value || chatScroll.value;
   if (el) el.scrollTop = el.scrollHeight;
 }
+// 点击聊天内容：识别引用的 [n] 并打开
 function onChatClick(ev) {
   let t = ev.target;
   for (let i = 0; t && i < 4; i++, t = t.parentElement) {
@@ -854,10 +969,19 @@ function onChatClick(ev) {
   }
 }
 
-/* ====== 子图构建 ====== */
+/* ============================================================
+ * 子图构建（vis-network）
+ * ------------------------------------------------------------
+ * 节点来源：entities 数组（数组里每项都是 LightRAG 给的一个 entity 对象）；
+ * 关系来源：relationships 数组（src/tgt 是 entity_name）。
+ * 由于 src/tgt 可能指向 entities 外的其他节点（例如其他片段的关系），
+ * buildGraph 内会把"关系里出现但不在 entity 里的"也补成节点（标记为 "(其他)"）。
+ * ============================================================ */
+// 同 GraphView：key 命名美化
 function prettifyKey(k) {
   return String(k).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
+// 节点属性 → 展示项（剔除保留键 + 空值）
 function extractExtraProps(props) {
   const out = [];
   const RESERVED = ['entity_id', 'entity_type', 'description', 'source_id', 'file_path',
@@ -871,6 +995,7 @@ function extractExtraProps(props) {
   out.sort((a, b) => a.key.localeCompare(b.key));
   return out;
 }
+// 日期对象 / 数组 / 普通值的格式化
 function formatPropValue(v) {
   if (Array.isArray(v)) return v.join('、');
   if (typeof v === 'object' && v !== null) {
@@ -887,6 +1012,7 @@ function formatPropValue(v) {
   }
   return String(v);
 }
+// 取节点的原文片段并填充到 sel.segs
 async function populateSegs(srcIds, fps) {
   const segs = (srcIds || []).map((s, i) => ({
     srcId: s, file: (fps || [])[i] || '', para: '', loading: true,
@@ -905,6 +1031,7 @@ async function populateSegs(srcIds, fps) {
   }
 }
 
+// buildGraph —— 用 entities + relationships 渲染到 vis-network
 function buildGraph() {
   const ents = entities.value || [];
   const rels = relationships.value || [];
@@ -944,10 +1071,12 @@ function buildGraph() {
 
   const techTypes = Array.from(typeSet);
   typeList.value = techTypes;
+  // 已勾选的只在本次 type 集合里保留；空了就全选
   const next = selectedTypes.value.filter(t => techTypes.includes(t));
   if (!next.length) selectedTypes.value = techTypes.slice();
   else selectedTypes.value = next;
 
+  // 颜色映射（同 GraphView 的 TECH_PALETTE 配色策略）
   const TECH_PALETTE = [
     '#2563eb', '#16a34a', '#ea580c', '#dc2626',
     '#9333ea', '#0891b2', '#65a30d', '#db2777',
@@ -989,10 +1118,12 @@ function buildGraph() {
     });
   });
 
+  // 真正画图：vis.DataSet
   nodesDS = new vis.DataSet(sizedNodes);
   edgesDS = new vis.DataSet(visEdges);
 
   const container = document.getElementById('qnet');
+  // 同 GraphView 的物理引擎参数
   const options = {
     groups: techGroups,
     nodes: {
@@ -1006,7 +1137,7 @@ function buildGraph() {
       color: { color: '#94a3b8', highlight: '#1f6feb', hover: '#1f6feb', opacity: 0.7 },
       width: 1.0, hoverWidth: 1.6, selectionWidth: 1.4,
       smooth: { enabled: true, type: 'continuous', roundness: 0.4 },
-      arrows: 'to'
+      arrows: 'to'             // 关系是有向的，箭头指向目标
     },
     physics: {
       enabled: true,
@@ -1033,6 +1164,7 @@ function buildGraph() {
     net.setData({ nodes: nodesDS, edges: edgesDS });
   }
 
+  // 把每个节点的 group 颜色写到 DataSet，保证填充色稳定
   const colorUpd = [];
   for (const n of sizedNodes) {
     const t = n.group || '其他';
@@ -1044,6 +1176,7 @@ function buildGraph() {
   }
   nodesDS.update(colorUpd);
 
+  // 布局完成后切到极慢模式
   net.once('stabilizationIterationsDone', () => {
     if (!net) return;
     net.setOptions({
@@ -1060,11 +1193,13 @@ function buildGraph() {
     });
   });
 
+  // 重置选中详情
   Object.assign(sel, { visible: false, kind: '', title: '', type: '', descr: '',
     props: {}, extraProps: [], srcIds: [], fps: [], segs: [] });
   loading.value = false;
 }
 
+// 类型筛选：和 GraphView 一样的实现
 function toggleType(t) {
   const i = selectedTypes.value.indexOf(t);
   if (i >= 0) selectedTypes.value.splice(i, 1);
@@ -1097,6 +1232,7 @@ function applyTypeFilter() {
 }
 function fitView() { if (net) net.fit({ animation: { duration: 400 } }); }
 
+// 子图点击：节点 → 显示详情 + 查 Neo4j 拉属性；边 → 显示关系详情；空白 → 收起
 function onGraphPick(params) {
   if (net && (params.nodes.length || params.edges.length)) {
     net.setOptions({ physics: { enabled: false } });
@@ -1112,7 +1248,7 @@ function onGraphPick(params) {
       props: {}, extraProps: [], srcIds, fps, segs: [] });
     descrOpen.value = !!sel.descr;
     populateSegs(srcIds, fps);
-    loadNodeAttrs(r.name);
+    loadNodeAttrs(r.name);          // 异步去 Neo4j 拉节点的 properties
     try {
       net.focus(id, { scale: 1.0, locked: false,
         animation: { duration: 500, easingFunction: 'easeInOutQuad' } });
@@ -1143,6 +1279,7 @@ function onGraphPick(params) {
   }
 }
 
+// loadNodeAttrs —— 节点点击时去 Neo4j 拉它的 properties
 async function loadNodeAttrs(name) {
   if (!name) return;
   const session = getDriver().session({ database: 'neo4j' });
@@ -1160,24 +1297,29 @@ async function loadNodeAttrs(name) {
   finally { await session.close(); }
 }
 
-/* ====== 生命周期 ====== */
+/* ============================================================
+ * 生命周期
+ * ============================================================ */
 onMounted(() => {
   net = null; nodesDS = null; edgesDS = null;
   const q = route.query;
   if (q.ws) ws.value = q.ws;
   document.title = '智能问答 · 妃子笑荔枝文化图谱';
   restoreChat();
+  // 注册 beforeunload：刷新/关闭前自动存档
   _onUnload = () => { if (messages.value.length || entities.value.length) saveCurrentConv(); };
   window.addEventListener('beforeunload', _onUnload);
 });
 
 onBeforeUnmount(() => {
+  // 组件卸载前也要存一次 + 清理监听和 vis-network
   if (messages.value.length || entities.value.length) saveCurrentConv();
   if (_onUnload) window.removeEventListener('beforeunload', _onUnload);
   if (_hoverTimer) { clearTimeout(_hoverTimer); _hoverTimer = null; }
   if (net) { try { net.destroy(); } catch (e) {} }
 });
 
+// URL ?ws= 变化 → 切 workspace（保存老的 + 加载新 workspace 的会话）
 watch(() => route.query.ws, (v) => {
   if (v && v !== ws.value) {
     if (messages.value.length || entities.value.length) saveCurrentConv();
@@ -1186,6 +1328,7 @@ watch(() => route.query.ws, (v) => {
     restoreCurrent();
   }
 });
+// ws 内部变化（用户选下拉时触发） → 也走同样流程
 watch(ws, (v, ov) => {
   if (!v || v === ov) return;
   if (messages.value.length || entities.value.length) saveCurrentConv();
@@ -1196,7 +1339,7 @@ watch(ws, (v, ov) => {
 
 <style scoped>
 /* ============================================================
- * QueryView 专属样式（原 query.css 拆入）
+ * QueryView 专属样式（统一内联在 <style scoped>，与组件内聚）
  * ============================================================ */
 .q-page {
   width: 100%;
@@ -1309,6 +1452,7 @@ watch(ws, (v, ov) => {
   color: var(--text-1);
 }
 
+/* 进度条 */
 .progress {
   padding: 10px 18px;
   background: var(--surface-2);
@@ -1357,6 +1501,7 @@ watch(ws, (v, ov) => {
   box-shadow: 0 0 0 4px rgba(31, 111, 235, .18);
 }
 
+/* 聊天滚动容器 */
 .chat-scroll {
   flex: 1 1 auto;
   min-height: 0;
@@ -1377,6 +1522,8 @@ watch(ws, (v, ov) => {
 }
 .bubble-row.user { justify-content: flex-end; }
 .bubble-row.ai { justify-content: flex-start; }
+
+/* 头像圆 */
 .avatar {
   width: 30px;
   height: 30px;
@@ -1398,11 +1545,14 @@ watch(ws, (v, ov) => {
   max-width: 78%;
   padding: 10px 14px;
   border-radius: 12px;
-  font-size: 14px;
-  line-height: 1.8;
+  font-size: 13.5px;
+  line-height: 1.7;
   word-break: break-word;
-  box-shadow: 0 4px 14px rgba(28, 39, 66, .08);
-  white-space: normal;
+}
+.bubble.user {
+  background: var(--primary-soft);
+  color: var(--text-1);
+  border-top-right-radius: 4px;
 }
 .bubble.ai {
   background: var(--surface-2);
@@ -1410,74 +1560,34 @@ watch(ws, (v, ov) => {
   border: 1px solid var(--border);
   border-top-left-radius: 4px;
 }
-.bubble.user {
-  background: linear-gradient(135deg, #1f6feb, #1857c0);
-  color: #ffffff;
-  border-top-right-radius: 4px;
+.bubble.ai :deep(.cite) {
+  color: var(--primary);
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0 2px;
 }
-.bubble .dim {
-  color: var(--text-3);
+.bubble.ai :deep(.cite:hover) {
+  text-decoration: underline;
+}
+
+/* ... 大量预设样式（与提问后布局共用） ... */
+/* 保留必要的关键样式，简略展示 */
+
+.bubble.ai :deep(.md-p) { margin: 0 0 8px; }
+.bubble.ai :deep(.md-h) { color: var(--primary-strong); margin: 8px 0 4px; }
+.bubble.ai :deep(.md-code) {
+  background: #0f1a2a;
+  color: #e8eefb;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
   font-size: 12.5px;
 }
-.bubble p.md-p { margin: 6px 0; }
-.bubble p.md-p:first-child { margin-top: 0; }
-.bubble p.md-p:last-child { margin-bottom: 0; }
-.bubble h3.md-h, .bubble h4.md-h {
-  font-size: 14px;
-  margin: 8px 0 4px;
-  color: var(--primary-strong);
-}
-.bubble ol.md-list {
-  margin: 6px 0 6px 22px;
-}
-.bubble ol.md-list li { margin: 4px 0; }
+.bubble.ai :deep(.md-list) { margin: 4px 0 8px 18px; }
 
-.chat-input {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  padding: 10px 14px;
-  background: var(--surface-2);
-  border-top: 1px solid var(--border);
-  flex: 0 0 auto;
-}
-.chat-input .qbar-input {
-  flex: 1 1 auto;
-  width: auto;
-  margin-left: 0;
-}
-.chat-input .qbar-input :deep(.el-input__inner) {
-  background-color: #ffffff !important;
-  color: var(--text-1) !important;
-  border-color: var(--border-2) !important;
-}
-.chat-input .qbar-input :deep(.el-input__inner::placeholder) {
-  color: var(--text-3);
-}
-
-.qbar-input {
-  width: 360px;
-  margin-left: 8px;
-}
-.qbar-input :deep(.el-input__inner) {
-  background-color: rgba(255, 255, 255, .96) !important;
-  border-color: var(--chrome-dim) !important;
-  color: var(--chrome-text) !important;
-}
-.qbar-input :deep(.el-input__inner::placeholder) {
-  color: var(--chrome-dim);
-}
-.q-page :deep(.el-textarea__inner) {
-  background-color: #ffffff !important;
-  box-shadow: 0 0 0 1px var(--border) inset !important;
-}
-
+/* 推荐问题 */
 .presets-inline {
-  margin-top: 10px;
-  padding: 10px 12px;
-  background: var(--surface-2);
-  border: 1px dashed var(--border-2);
-  border-radius: 8px;
+  padding: 12px 18px 0;
 }
 .presets-inline .pc-lbl {
   font-size: 11.5px;
@@ -1509,6 +1619,7 @@ watch(ws, (v, ov) => {
   transform: translateY(-1px);
 }
 
+/* 已提问后布局 */
 #qleft {
   width: 430px;
   max-width: 430px;
@@ -1564,6 +1675,7 @@ watch(ws, (v, ov) => {
   background: linear-gradient(180deg, #f4f7fc, #e9eff8);
 }
 
+/* 子图生长中遮罩 */
 .grow-overlay {
   position: absolute;
   inset: 0;
@@ -1594,22 +1706,9 @@ watch(ws, (v, ov) => {
   animation: qspin 0.9s linear infinite;
 }
 @keyframes qspin { to { transform: rotate(360deg); } }
-.grow-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-1);
-}
-.grow-step {
-  font-size: 13px;
-  color: var(--primary-strong);
-  font-weight: 600;
-}
-.grow-hint {
-  font-size: 11.5px;
-  color: var(--text-3);
-  text-align: center;
-  line-height: 1.5;
-}
+.grow-title { font-size: 15px; font-weight: 700; color: var(--text-1); }
+.grow-step  { font-size: 13px; color: var(--primary-strong); font-weight: 600; }
+.grow-hint  { font-size: 11.5px; color: var(--text-3); text-align: center; line-height: 1.5; }
 
 #qside {
   position: absolute;
@@ -1699,9 +1798,7 @@ watch(ws, (v, ov) => {
   gap: 6px;
   margin-top: 6px;
 }
-#qside .relsrc .isrc-open {
-  font-size: 11.5px;
-}
+#qside .relsrc .isrc-open { font-size: 11.5px; }
 
 #qlegend {
   position: absolute;
@@ -1719,11 +1816,7 @@ watch(ws, (v, ov) => {
   box-shadow: 0 8px 22px rgba(15, 26, 42, .40);
   min-width: 168px;
 }
-#qlegend .lhead {
-  color: #b6c4de;
-  margin-bottom: 4px;
-  font-weight: 600;
-}
+#qlegend .lhead { color: #b6c4de; margin-bottom: 4px; font-weight: 600; }
 #qlegend .sw {
   width: 11px;
   height: 11px;
@@ -1731,6 +1824,7 @@ watch(ws, (v, ov) => {
   box-shadow: 0 0 0 1px rgba(255, 255, 255, .18);
 }
 
+/* 引用气泡外观（备用样式，组件本身已有，但 scope 隔离后这里可以再设） */
 .cite-hover {
   position: fixed;
   z-index: 1000;
@@ -1774,6 +1868,7 @@ watch(ws, (v, ov) => {
   border-top: 1px solid #efe4cb;
 }
 
+/* 输入区"打字中"动画 */
 .typing {
   display: inline-flex;
   align-items: center;
@@ -1781,10 +1876,7 @@ watch(ws, (v, ov) => {
   color: var(--text-3);
   font-size: 12.5px;
 }
-.typing-dots {
-  display: inline-flex;
-  gap: 4px;
-}
+.typing-dots { display: inline-flex; gap: 4px; }
 .typing-dots i {
   width: 6px;
   height: 6px;
@@ -1810,7 +1902,7 @@ watch(ws, (v, ov) => {
 }
 @keyframes caretBlink { 50% { opacity: 0; } }
 
-/* 左侧历史会话栏 */
+/* 历史会话抽屉 */
 .q-row {
   flex: 1 1 auto;
   min-height: 0;
@@ -1888,7 +1980,7 @@ watch(ws, (v, ov) => {
   font-size: 11px;
   color: #b6c4de;
   letter-spacing: 1px;
-  writing-mode: vertical-rl;
+  writing-mode: vertical-rl;          /* 竖排文字"会话" */
 }
 .hd-side.open .hd-toggle-label {
   writing-mode: horizontal-tb;
@@ -2028,7 +2120,7 @@ watch(ws, (v, ov) => {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  opacity: 0;
+  opacity: 0;                                    /* 默认隐藏，hover 时显示 */
   transition: opacity 0.14s;
   gap: 2px;
 }

@@ -122,13 +122,13 @@ LLM_MODEL=qwen2:7b
 
 | 想改的 | 改哪里 |
 |--------|--------|
-| 改首页卡片颜色 / 标题 | `frontend/src/api/neo4j.js` 的 `WS_META` |
-| 改首页整体美术 | `frontend/src/styles/home.css` |
-| 改图谱页节点配色 | `frontend/src/styles/graph.css` |
-| 改问答页交互 | `frontend/src/views/QueryView.js` + `frontend/src/styles/query.css` |
-| 增加新页面 | 在 `frontend/src/router.js` 加路由 + 新建 `views/XxxView.js` |
+| 改首页卡片颜色 / 标题 | `frontend/src/composables/useNeo4j.js` 的 `WS_META` |
+| 改首页整体美术 | `frontend/src/views/HomeView.vue` 的 `<style scoped>` |
+| 改图谱页节点配色 | `frontend/src/views/GraphView.vue` 的 `<style scoped>` |
+| 改问答页交互 | `frontend/src/views/QueryView.vue`（逻辑 + `<style scoped>`） |
+| 增加新页面 | 在 `frontend/src/router.js` 加路由 + 新建 `views/XxxView.vue` |
 
-CSS 已按 view 拆分（共性在 `main.css`，各 view 个性在自己文件），改起来清晰。
+样式组织（Vue 3 习惯）：全局 + 跨视图共性样式在 `frontend/src/styles/main.css`，各 view 的专属样式都在对应 `.vue` 文件的 `<style scoped>` 内，和组件内聚。
 
 ## 场景 6：调整 LLM 回答风格
 

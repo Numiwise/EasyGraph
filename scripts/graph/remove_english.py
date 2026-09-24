@@ -15,9 +15,17 @@
   - 03b-全球格局-PMC荔枝全球产业综述
   - 10-育种-NatureGenetics2022荔枝基因组论文
 
+关键实现（Cypher 思路）：
+  - 先把 file_path 按 '<SEP>' 拆成数组 parts。
+  - ANY(p IN parts WHERE 标记) 判断「是否至少含一个英文来源」。
+  - ALL(p IN parts WHERE 标记) 判断「是否所有分段都是英文来源」。
+  - 两者同时成立 = 纯英文来源 → 删除；只要含一段中文来源就保留。
+
 用法:
   python remove_english.py [--uri bolt://localhost:7688] [--apply]
   默认仅统计（dry-run），加 --apply 才真正删除。
+
+安全说明：AUTH 是本机开发库固定凭据；若推到公网请改读环境变量。
 """
 import sys
 import argparse

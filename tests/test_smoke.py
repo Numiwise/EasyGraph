@@ -74,17 +74,15 @@ def test_frontend_view_modules_import():
 
 
 def test_required_css_files_present():
-    """拆分后的 CSS 文件应全部存在（main/home/graph/query/doc）。"""
+    """main.css 必须存在（全局 + 跨视图共性样式已统一在这里）。"""
     styles = ROOT / "frontend" / "src" / "styles"
-    for name in ("main.css", "home.css", "graph.css", "query.css", "doc.css"):
-        assert (styles / name).is_file(), f"缺少 CSS: {name}"
+    assert (styles / "main.css").is_file(), "缺少 main.css"
 
 
-def test_index_html_references_all_css():
-    """index.html 必须引入所有 5 个 CSS。"""
-    html = (ROOT / "frontend" / "index.html").read_text(encoding="utf-8")
-    for name in ("main.css", "home.css", "graph.css", "query.css", "doc.css"):
-        assert name in html, f"index.html 未引用 {name}"
+def test_index_html_loads_main_js():
+    """index.html 必须加载 Vite 入口 main.js（main.js 内引入 main.css）。"""
+    html = (ROOT / "index.html").read_text(encoding="utf-8")
+    assert "/frontend/src/main.js" in html, "index.html 未加载 main.js"
 
 
 def test_nginx_conf_present():

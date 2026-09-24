@@ -9,11 +9,18 @@
   - 误归类：白鹤梁水下博物馆（归到技术）
   - 噪声文献：新闻标题、乱码、白皮书、无关诗文（牡丹亭/莺莺传等）
   - 无关机构/制度：护士学校、织网店、保甲法等
-仅作用于展示库 7688，不触碰 LightRAG 全量库 7687。
+注意：仅作用于展示库 7688，不触碰 LightRAG 全量库 7687。
+
+关键点（给读者）：
+  - 默认 dry-run：只统计命中数量，不真正删除；想删除必须加 --apply。
+  - BLACKLIST 是可维护的\"黑名单\"：以后发现新的离题/噪声实体，直接往里加即可。
+  - 用实体名的精确匹配（entity_id IN)，不会误删同名的其它内容。
 
 用法:
   python prune_marginal.py            # 仅统计，不删除
   python prune_marginal.py --apply    # 真正删除
+
+安全说明：AUTH 是本机开发库固定凭据；若推到公网请改读环境变量。
 """
 import sys, argparse
 from neo4j import GraphDatabase

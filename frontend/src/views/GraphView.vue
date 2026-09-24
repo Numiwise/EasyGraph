@@ -1,16 +1,26 @@
 <!--
   GraphView.vue —— 大图谱可视化主页面（路由 /graph/:ws）
   ------------------------------------------------------------
-  Vue 3 重构（SFC + Composition API）：
-  - 组件级可变状态用 ref（避免 this.）
-  - 组件级不可变状态用 const（wsOptions / limitOptions / hopsOptions / RESERVED_KEYS / edgeFontBase）
-  - neo4j 全局从 import 替换（neo4j.int 调用保持）
-  - vis-network 从 import { DataSet, Network } 起步
-  - onMounted / onBeforeUnmount 替代 mounted / beforeUnmount
-  - watch(() => route.params.ws) 替代 watch '$route.params.ws'
+  业务用途：
+    本页面是知识图谱的核心可视化入口。路由 /graph/:ws（:ws 是 workspace id）
+    进入后，会：
+      1) 连上 Neo4j 数据库（getDriver）
+      2) 拿全部 entity_type 列表 → 渲染"实体类型图例"组件（可勾选筛选）
+      3) 取该 workspace 的图数据（节点 + 关系），渲染到 vis-network
+      4) 用户点击节点 → 右侧侧栏显示节点的描述、属性、原文片段、相关关系
+      5) 用户搜索实体名 → 以该实体为中心展开 k 跳邻居
+      6) 整个动作都可以通过顶部工具条操作：跳数 / 上限 / 显示关系名 / 适应视图 等
+
+  Vue 3 涉及的概念（给初学者）：
+    - defineProps({ ws0 })：从路由 props 拿到 workspace id（router 会自动传过来）
+    - 响应式状态：ref（基本类型）/ reactive（对象）/ computed（派生）
+    - watch(() => route.params.ws)：监听路由变化，自动切到对应 workspace
+    - onMounted / onBeforeUnmount：生命周期钩子
+    - vis-network：第三方图可视化库，通过 DataSet + Network + Canvas 渲染
 -->
 <template>
   <div class="graph-page">
+    <!-- 顶部"工具条"：徽标 + 标题 + 各种按钮 / 下拉 -->
     <div id="bar">
       <span class="brand">
         <WorkspaceBadge :meta="currentMeta" />
@@ -37,15 +47,24 @@
       <el-button @click="fitView">适应视图</el-button>
       <span id="status"><span id="dot" :class="{ok: status.ok}"></span>{{ status.text }}</span>
     </div>
+
+    <!-- 主体：左侧 vis-network 画布，右侧详情面板 -->
     <div id="main">
       <div id="net"></div>
+      <!--
+        右侧侧栏：点击节点/边时显示。
+        内部有三个子组件：
+          AttrTable —— 节点的非保留键属性表
+          ChunkPanel —— 节点的原文片段列表（支持展开/折叠）
+          （还有原生的 .descr / .attrs / .rels 区段）
+      -->
       <div id="side" v-show="side.visible">
         <h3>{{ side.name }}</h3>
         <span class="tag">{{ side.type }}</span>
         <span class="tag" v-if="side.isCenter">展开中心</span>
         <div class="hint">提示：点击图中任一节点，即按当前跳数直接展开其子图</div>
 
-        <!-- 描述（来自 Neo4j properties.description；LightRAG 把朝代/产地等属性也写入此字段） -->
+        <!-- 描述（来自 Neo4j properties.description） -->
         <div v-if="side.descr" class="descr">
           <div class="section-head" @click="descrOpen = !descrOpen">
             <span class="sh-title">描述</span>
@@ -62,6 +81,10 @@
             @toggle="attrsOpen = !attrsOpen" />
         </div>
 
+        <!--
+          ChunkPanel：节点的原文片段列表。
+          用 v-if/v-else 让"有/无段落"分两个分支，保证 watch 能正确触发。
+        -->
         <ChunkPanel
           v-if="side.segs && side.segs.length"
           :src-ids="side.srcIds"
@@ -76,6 +99,8 @@
           @open-original="openOriginalFile" />
       </div>
     </div>
+
+    <!-- 左下"实体类型图例"：可勾选筛选多类型 -->
     <div id="legend" v-show="typeList.length">
       <TypeLegend
         title="实体类型（勾选筛选，选择会被记住）"
@@ -86,7 +111,8 @@
         @select-all="selectAllTypes"
         @select-none="selectNoneTypes" />
     </div>
-    <!-- 全屏加载遮罩：取数阶段 + 布局定位阶段都保持，直到图谱真正可见 -->
+
+    <!-- 全屏加载遮罩：取数阶段 + vis-network 布局定位阶段都保持 -->
     <div id="loading" v-show="loading || stabilizing">
       <div class="loading-card">
         <div class="loading-spin"></div>
@@ -98,35 +124,56 @@
 </template>
 
 <script setup>
+/* ============================================================
+ * 导入区
+ * ============================================================ */
+// 从 vue 引入组合式 API
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue';
+// vue-router 4：useRoute (响应式 route 对象) / useRouter (跳转)
 import { useRoute, useRouter } from 'vue-router';
+// Neo4j 的 Bolt JS 客户端（neo4j.int() 用于传大整数）
 import neo4j from 'neo4j-driver';
+// vis-network 的独立构建：DataSet（高效数据集合）+ Network（canvas 渲染）
 import { DataSet, Network } from 'vis-network/standalone/esm/vis-network';
+
+// 从 composables/useNeo4j.js 引入 WS_META / getDriver / wsMeta
 import { WS_META, getDriver, wsMeta } from '../composables/useNeo4j.js';
+// 从 composables/useLightragApi.js 引入 fetchChunk / splitSep / openOriginal
 import { fetchChunk, splitSep, openOriginal } from '../composables/useLightragApi.js';
+
+// 引入几个组件
 import WorkspaceBadge from '../components/WorkspaceBadge.vue';
 import WorkspaceSelect from '../components/WorkspaceSelect.vue';
 import TypeLegend from '../components/TypeLegend.vue';
 import ChunkPanel from '../components/ChunkPanel.vue';
 import AttrTable from '../components/AttrTable.vue';
 
+// 把 DataSet 和 Network 装到 vis 对象上，便于下方统一加前缀
 const vis = { DataSet, Network };
 
-/* ===== 颜色（模块级常量） ===== */
-// 科技感配色（与 renderGraph / buildGraph 共用 → 图例和节点颜色一致）
+/* ============================================================
+ * 颜色（模块级常量）
+ * ------------------------------------------------------------
+ * 实体类型 → 颜色的映射由 colorFor() 决定（按 type 字符串 hash 取模分配），
+ * 这样图例上的颜色块 ↔ 图中节点颜色严格一致。
+ * TECH_PALETTE 是 12 种"科技感"色，邻近的 entity_type 字符串会尽量分到
+ * 差异较大的色相上。
+ * ============================================================ */
 const TECH_PALETTE = [
   '#2563eb', '#16a34a', '#ea580c', '#dc2626',
   '#9333ea', '#0891b2', '#65a30d', '#db2777',
   '#ca8a04', '#0d9488', '#4f46e5', '#7c3aed'
 ];
-// 实体类型 → 颜色的统一函数（按 type 字符串 hash 取模分配，确保相邻 type 也分到差异较大的色相）
+// 缓存 type → color 的映射，避免重复 hash
 const _colorAssign = new Map();
+// 简单字符串 hash（Java 风格，乘 31 加字符码）
 function hashStr(s) {
   let h = 0;
   const k = String(s || '');
   for (let i = 0; i < k.length; i++) h = (h * 31 + k.charCodeAt(i)) | 0;
   return Math.abs(h);
 }
+// 颜色分配函数：未知 type 都返回 _colorAssign 中缓存值；首次才计算
 function colorFor(t) {
   const key = String(t || '');
   if (!_colorAssign.has(key)) {
@@ -135,123 +182,174 @@ function colorFor(t) {
   return _colorAssign.get(key);
 }
 
-/* ===== 组件 props ===== */
+/* ============================================================
+ * 组件 props
+ * ------------------------------------------------------------
+ * 注：路由 /graph/:ws 的 props 函数会把 params.ws 转成 ws0 prop 传入。
+ *   这是 router.js 里 { ... props: (route) => ({ ws0: route.params.ws }) }
+ * ============================================================ */
 const props = defineProps({
   ws0: { type: String, default: '' }
 });
 
-/* ===== 路由 ===== */
+/* ============================================================
+ * 路由（vue-router 4 hooks）
+ * ============================================================ */
 const route = useRoute();
 const router = useRouter();
 
-/* ===== 响应式状态（原 data()） ===== */
+/* ============================================================
+ * 响应式状态（相当于 Vue 2 的 data()）
+ * ============================================================ */
+// 当前 workspace id（默认总图谱）
 const ws = ref(props.ws0 || 'g00_master_all');
+// workspace 列表下拉选项
 const wsOptions = WS_META.map(m => ({ v: m.id, t: m.name }));
+// 全图模式的"节点上限"
 const limitNum = ref(300);
+// 上限可选值
 const limitOptions = [150, 300, 600, 1000];
+// 搜索关键词
 const keyword = ref('');
+// 跳数（搜索/点击展开都用这个）
 const hops = ref(1);
 const hopsOptions = [1, 2, 3, 4, 5];
+// 连接状态：ok + text 两段（红/绿点 + 文字）
 const status = reactive({ ok: false, text: '未连接' });
+// 是否处于"加载中"（取数阶段）
 const loading = ref(false);
-// 数据已取回但 vis-network 仍在做内置布局定位（stabilization）时保持 loading 遮罩，
-// 消除「提示消失 → 图谱要几秒才出来」的断裂感。stabilizationIterationsDone 后置 false
+// vis-network 内置 physics 布局还在跑（stabilization）时保持 loading 遮罩，
+// 消除"提示消失 → 图谱要几秒才出来"的断裂感
 const stabilizing = ref(false);
+
 // 选中中心节点的光晕/连线脉冲动画句柄
 let _pulseRaf = null;
 // 动画期间被改过颜色的边 id（停止动画时还原为"原色"）
 let _pulseEdges = [];
-const showRel = ref(false);          // 连线上是否显示关系名称
+// 是否在连线上显示关系名称
+const showRel = ref(false);
+// 连线文字样式（背景 + 边框 + 字号 + 字体）
 const edgeFontBase = { size: 10, color: '#55637a', face: 'Microsoft YaHei', align: 'middle',
   strokeWidth: 2, strokeColor: '#dbe6f5', background: 'rgba(219,230,245,0.92)' };
-const centerId = ref(null);          // 最近一次「以节点为中心展开」的中心节点
+// 最近一次"以节点为中心展开"的中心节点 id
+const centerId = ref(null);
 // hopsMode: 'all' 显示全图；'sub' 按 center+hops 隐藏
 const hopsMode = ref('all');
-// 全图邻接表（renderGraph 时存到 _adj）
+// 全图邻接表（renderGraph 时存到 _adj），用于"按跳数隐藏远处节点"
 let _adj = null;
 let _allNodeIds = [];
 let _allEdgeIds = [];
-// vis-network 实例 / DataSet（markRaw 避免 Vue 把它们深度代理）
+
+// vis-network 实例 / DataSet（受 Vue 状态管理会出错时用 ref 让其兼容）
 let driver = null;
 let net = null;
 let nodesDS = null;
 let edgesDS = null;
+// 兜底定时器：万一 stabilization 事件没触发，10s 后强制关掉 loading 遮罩
 let _stabTimer = null;
+// 当前选中节点 id（用于"取消选中"时还原样式）
 let _selectedId = null;
-const typeList = ref([]);
-const typeColors = ref({});
-const selectedTypes = ref([]);
+
+// 图例相关的三个 ref
+const typeList = ref([]);          // 该 workspace 全部 entity_type（如 ["人物","地点","组织"]）
+const typeColors = ref({});        // 类型 → 颜色 hex 映射
+const selectedTypes = ref([]);     // 当前已勾选类型（默认全选，进入即全部可见）
+
+// 侧栏状态（对象用 reactive 便于字段统一管理）
 const side = reactive({ visible: false, id: 0, name: '', type: '', isCenter: false, descr: '',
   props: {}, extraProps: [], srcIds: [], fps: [], rels: [], segs: [] });
-// 节点全部 Neo4j 属性键中需要排除显示的「保留键」——留给顶部卡片与原文区
+
+// Neo4j 属性键中需要排除显示的"保留键"（已经专门在顶部卡片或原文区展示）
 const RESERVED_KEYS = ['entity_id', 'entity_type', 'description', 'source_id', 'file_path',
   'created_at', 'updated_at', 'id'];
-// 详情面板各分区的折叠状态：描述/属性可手动折叠，原文片段在 chunks 上单独控制
+// 详情面板各分区的折叠状态
 const descrOpen = ref(true);
 const attrsOpen = ref(true);
 
-/* ===== 计算属性 ===== */
-const typeFs = computed(() => selectedTypes.value);
-const currentMeta = computed(() => wsMeta(ws.value));
-// 加载遮罩标题/副文案：取数阶段 vs 布局定位阶段 不同文案，衔接更自然
+/* ============================================================
+ * 计算属性
+ * ============================================================ */
+const typeFs = computed(() => selectedTypes.value);   // 给 Cypher 用，方便传参
+const currentMeta = computed(() => wsMeta(ws.value)); // 当前 workspace 的展示元数据
+
+// 加载遮罩的两段文案
 const loadTitle = computed(() => (loading.value && !stabilizing.value) ? '图谱加载中…' : '正在铺展节点位置…');
 const loadSub = computed(() => stabilizing.value
   ? '已取回节点与关系，正在稳定布局（动画定位），请稍候'
   : '正在准备图谱内容，耐心等一下');
-// 图例两个批量开关的勾选态
+
+// 图例两个批量按钮的勾选态（虽然按钮本身由 TypeLegend 控制，但这里备份）
 const allSelected = computed(() => typeList.value.length > 0 && selectedTypes.value.length === typeList.value.length);
 const noneSelected = computed(() => selectedTypes.value.length === 0);
 
-/* ===== 工具方法 ===== */
+/* ============================================================
+ * 工具方法
+ * ============================================================ */
+// 同时设置 ok 和 text
 function setStatus(ok, text) {
   status.ok = ok;
   status.text = text;
 }
 
-/* ===== 路由相关 ===== */
+/* ============================================================
+ * 路由相关动作
+ * ============================================================ */
+// 返回首页
 function goHome() { router.push('/'); }
+// 跳到问答页（新标签页打开）
 function goQuery() {
   const url = window.location.origin + window.location.pathname +
     '#/query?ws=' + encodeURIComponent(ws.value);
   window.open(url, '_blank');
 }
-function onWsChange(v) { router.push('/graph/' + v); }   // 下拉切换 = 路由跳转
+// 切换 workspace：直接改 URL（路由 watch 会触发 switchWorkspace）
+function onWsChange(v) { router.push('/graph/' + v); }
 
-/* ===== 溯源 ===== */
+/* ============================================================
+ * 溯源：点击 chunk 旁的"查看原文"按钮
+ * ============================================================ */
 async function openOriginalFile(fp) {
   if (!fp) return;
+  // openOriginal(fp, ws) 内部已经做了一站式（_origin/html/pdf 都能直开，docx 兜底返回 false）
   const ok = await openOriginal(fp, ws.value);
-  if (!ok) openDoc(fp);
+  if (!ok) openDoc(fp);   // 浏览器打不开（docx 等）→ 在 DocView 中预览
 }
 function openDoc(fp) {
   if (!fp) return;
+  // 新标签页打开 /doc?ws=...&file=... 路由（DocView 负责把 md 渲染出 HTML）
   const url = window.location.origin + window.location.pathname +
     '#/doc?ws=' + encodeURIComponent(ws.value) + '&file=' + encodeURIComponent(fp);
   window.open(url, '_blank');
 }
 
-/* ===== 节点属性辅助 ===== */
-// 把下划线 / 蛇形字段名转成展示名：「entity_type」→「Entity Type」
+/* ============================================================
+ * 节点属性辅助：把 Neo4j 属性转成侧栏要显示的"展示项"
+ * ============================================================ */
+// "entity_type" → "Entity Type" 这种"下划线命名 → 标题命名"
 function prettifyKey(k) {
   return String(k).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
+// 提取所有非保留键、非空值的属性，转成 { key, label, value }[]
 function extractExtraProps(props) {
   const out = [];
   Object.keys(props || {}).forEach(k => {
-    if (RESERVED_KEYS.includes(k)) return;
+    if (RESERVED_KEYS.includes(k)) return;   // 保留键留到顶部展示
     const v = props[k];
-    if (v === null || v === undefined || v === '') return;
+    if (v === null || v === undefined || v === '') return;   // 空值不显示
     out.push({ key: k, label: prettifyKey(k), value: formatPropValue(v) });
   });
+  // 按 key 字母序展示，方便人眼扫
   out.sort((a, b) => a.key.localeCompare(b.key));
   return out;
 }
+// 格式化属性值：数组 → 用"、"拼接；对象 → 看是不是 Neo4j Date 字段（year/month/day），
+// 是的话格式化成 "yyyy-mm-dd"；其它对象 → JSON 字符串
 function formatPropValue(v) {
   if (Array.isArray(v)) return v.join('、');
   if (typeof v === 'object') {
-    // Neo4j 时空类型 → ISO 字符串；其他对象 → JSON
     try {
       if (v.year || v.month || v.day) {
+        // Neo4j Bolt 时空类型：可能是 number 或 { low } 大整数
         const y = v.year && (v.year.low != null ? v.year.low : v.year);
         const m = v.month && (v.month.low != null ? v.month.low : v.month);
         const d = v.day && (v.day.low != null ? v.day.low : v.day);
@@ -264,12 +362,12 @@ function formatPropValue(v) {
   return String(v);
 }
 
-// 取原文片段（chunk）并内联到节点信息中：
-//   头两个 chunk 默认展开，余下折叠；原文按钮始终可见
+// 取节点的原文片段（chunk）并内联到节点信息中：
+//   头两个 chunk 默认展开，余下折叠
 async function populateSegs(srcIds, fps) {
   const segs = (srcIds || []).map((s, i) => ({
     srcId: s, file: (fps || [])[i] || '', para: '', loading: true,
-    // 默认展开前 2 个，避免一次性堆叠 N 段原文内容互斥打架
+    // 默认展开前 2 个，避免一次性堆叠 N 段原文内容导致侧栏太长
     expanded: i < 2
   }));
   side.segs = segs;
@@ -277,6 +375,7 @@ async function populateSegs(srcIds, fps) {
     try {
       const pl = await fetchChunk(segs[i].srcId, ws.value);
       segs[i].para = (pl && pl.content) ? pl.content : '';
+      // 如果 props 没传 file_path 但 payload 里有，就用它（更准确）
       if (pl && pl.file_path && !segs[i].file) segs[i].file = pl.file_path;
     } catch (err) {
       segs[i].para = '';
@@ -285,41 +384,47 @@ async function populateSegs(srcIds, fps) {
   }
 }
 
-/* ===== 工作区 ===== */
+/* ============================================================
+ * 工作区切换
+ * ============================================================ */
+// 切换 workspace 时的"清理 + 重载"
 async function switchWorkspace() {
   loading.value = true;
   centerId.value = '';
-  stopPulse();
+  stopPulse();                                // 停掉上一个 ws 残留的脉冲动画
   if (_stabTimer) { clearTimeout(_stabTimer); _stabTimer = null; }
   if (net) { try { net.destroy(); } catch (e) {} net = null; nodesDS = null; edgesDS = null; }
-  // 页签名称 + 导航栏名称随子图变化
+  // 页签名称 + 顶部标题
   document.title = currentMeta.value.name + ' · 妃子笑荔枝文化图谱';
   try {
-    await loadTypes(ws.value);
-    await loadGraph('');
+    await loadTypes(ws.value);    // 拿 entity_type 列表 + 颜色映射
+    await loadGraph('');          // 全图模式
   } finally { loading.value = false; }
 }
 
+// loadTypes(label) —— 拿 label 这个 workspace 下所有 entity_type（按字母升序）
 async function loadTypes(label) {
   const session = driver.session({ database: 'neo4j' });
   try {
     const res = await session.run(
       'MATCH (n:`' + label + '`) RETURN DISTINCT coalesce(n.entity_type, "其他") AS t ORDER BY t');
     typeList.value = res.records.map(r => r.get('t'));
-    // 默认全选：进入子图即全部实体类型可见（图例"全选"勾选态）
+    // 默认全选：进入子图所有实体类型可见
     selectedTypes.value = typeList.value.slice();
-    // 用与节点同源的 colorFor 分配（图例 ↔ 节点颜色一致）
+    // 给每个 type 分配一个颜色（用 colorFor 与节点同源）
     const colors = {};
     typeList.value.forEach(t => { colors[t] = colorFor(t); });
     typeColors.value = colors;
   } finally { await session.close(); }
 }
 
-/* ===== 类型多选筛选 ===== */
+/* ============================================================
+ * 类型多选筛选（侧栏图例）
+ * ============================================================ */
 function toggleType(t) {
   const i = selectedTypes.value.indexOf(t);
-  if (i >= 0) selectedTypes.value.splice(i, 1);
-  else selectedTypes.value.push(t);
+  if (i >= 0) selectedTypes.value.splice(i, 1);     // 已选 → 取消
+  else selectedTypes.value.push(t);                 // 未选 → 选中
   applyTypeFilter();
 }
 function selectAllTypes() {
@@ -332,7 +437,7 @@ function selectNoneTypes() {
 }
 function applyTypeFilter() { refreshVisibility(); }
 
-// 统一可见性：实体类型筛选 AND 跳数隐藏（两者叠加生效）
+// 统一可见性计算：实体类型筛选 AND 跳数隐藏（两者叠加生效）
 function refreshVisibility() {
   if (!nodesDS || !edgesDS) return;
   // 1) 跳数可见集合（sub 模式 → BFS；all 模式 → 不做跳数限制）
@@ -350,18 +455,18 @@ function refreshVisibility() {
       frontier = next;
     }
   }
-  // 2) 类型可见集合：勾选了才显示（"全部不选"= 空集合 → 不显示任何类型）
+  // 2) 类型可见集合
   const visTypes = new Set(selectedTypes.value);
-  // 3) 逐节点：目标中心节点豁免类型筛选（选中它看子图时永远不能隐藏）；
-  //    其余节点：类型已勾选 且（无跳数限制 或 在跳数集合内）→ 显示
+  // 3) 逐节点：选中中心节点豁免类型筛选（永远不能隐藏）；其余节点需要"已勾选"且"在跳数集合内"
   const nodeUpd = [];
   const visible = new Set();
   nodesDS.forEach(n => {
     const isCenter = (centerId.value != null && n.id === centerId.value);
-    const okType = isCenter || visTypes.has(n.group);
+    const okType = isCenter || visTypes.has(n.group);   // group 在 vis 里就是 entity_type
     const okHop = !hopKeep || hopKeep.has(n.id);
     const show = okType && okHop;
     if (show) visible.add(n.id);
+    // 只在状态需要变时才往 DataSet 里写（vis-network 内部 diff）
     if ((n.hidden || false) === show) nodeUpd.push({ id: n.id, hidden: !show });
   });
   if (nodeUpd.length) nodesDS.update(nodeUpd);
@@ -376,8 +481,12 @@ function refreshVisibility() {
 
 function applyHopsFilter() { refreshVisibility(); }
 
-/* ===== 工具栏动作 ===== */
+/* ============================================================
+ * 顶部工具栏动作
+ * ============================================================ */
+// 搜索关键词 → 以关键词为中心 k 跳展开
 function searchGo() { centerId.value = null; loadGraph(keyword.value.trim()); }
+// 跳数变化 → 切到 sub 或 all 模式
 function onHopsChange() {
   hopsMode.value = (centerId.value != null && centerId.value !== '') ? 'sub' : 'all';
   applyHopsFilter();
@@ -385,7 +494,9 @@ function onHopsChange() {
     ? ('已显示「中心节点」' + hops.value + ' 跳邻居')
     : ('跳数 ' + hops.value + '（点击节点后生效）'));
 }
+// 重新加载（通常由"上限"变化触发）
 function reload() { loadGraph(keyword.value.trim()); }
+// 显示全部：清空关键词 + 中心节点 + 跳数，回到全图模式
 function showAll() {
   keyword.value = '';
   centerId.value = '';
@@ -393,13 +504,18 @@ function showAll() {
   refreshVisibility();
   fitView();
 }
+// 适应视图（居中 + 缩放到合适大小）
 function fitView() { if (net) net.fit({ animation: true }); }
 
-/* ===== 关系名称显示开关 ===== */
+/* ============================================================
+ * 关系名称显示开关
+ * ============================================================ */
+// 取边的描述前 16 个字符当 label，太长会"自动截断 + …"
 function relLabel(ds) {
   const s = (Array.isArray(ds) ? ds[0] : '') || '';
   return s.length > 16 ? s.slice(0, 16) + '…' : s;
 }
+// 切换"显示关系名称"：三步同时改（数据 label + font size + 强制重绘）
 function toggleRel() {
   showRel.value = !showRel.value;
   if (!edgesDS || !net) return;
@@ -422,7 +538,12 @@ function toggleRel() {
   setStatus(true, showRel.value ? '已显示关系名称' : '已隐藏关系名称');
 }
 
-/* ===== 图查询 ===== */
+/* ============================================================
+ * 图查询：从 Neo4j 拉节点 + 关系
+ * ------------------------------------------------------------
+ * loadGraph(searchText) 是入口，searchText 非空时走 radialFetch
+ * （BFS 中心向外扩），否则按"度数排序取前 limit"拿全图核心节点。
+ * ============================================================ */
 async function loadGraph(searchText) {
   const label = ws.value;
   const limit = limitNum.value;
@@ -433,14 +554,14 @@ async function loadGraph(searchText) {
     let nodes, edges, centerIds = [];
     try {
       if (searchText) {
+        // 搜索模式：径向 k 跳展开
         const res = await radialFetch(session, label, searchText, limit, hops.value);
         nodes = res.nodes; edges = res.edges; centerIds = res.centerIds;
       } else {
+        // 全图模式：按度数取前 N
         centerId.value = null;
-        // 全图模式：按度数（连接数）取前 N 个核心节点，天然聚焦大集团、剔除外围游离节点
-        // 兼容所有 Neo4j 版本：用 OPTIONAL MATCH 计算度数（不用 count { ... } 这种 5.x 语法）
-        //   - 先排除 deg=0/1 的孤立或叶子节点（kcore 删不掉的弱连接）
-        //   - 再按度数降序取前 N 个
+        // OPTIONAL MATCH 计算度数（兼容所有 Neo4j 版本，不依赖 count { ... } 5.x 语法）
+        // 先排除 deg=0/1 的孤立/叶子节点，再按度数降序
         const q1 = 'MATCH (n:`' + label + '`) ' +
           'WHERE ($typeFs = [] OR coalesce(n.entity_type,"其他") IN $typeFs) ' +
           'OPTIONAL MATCH (n)-[r]-() ' +
@@ -459,6 +580,7 @@ async function loadGraph(searchText) {
           props: r.get('props') || {}
         }));
         if (nodes.length) {
+          // 在选中的节点之间查关系
           const ids = nodes.map(n => n.id);
           const q2 = 'UNWIND $ids AS i ' +
             'MATCH (a)-[r]->(b) WHERE id(a) = i AND id(b) IN $ids ' +
@@ -492,6 +614,7 @@ async function loadGraph(searchText) {
 // 辐射状 k 跳搜索：中心按名称匹配（不受类型筛选），邻居按类型筛选
 async function radialFetch(session, label, kw, cap, hopsVal) {
   const typeFs = typeFs.value;
+  // 1) 找中心节点（按名称子串匹配，取最小的 3 个）
   const r0 = await session.run(
     'MATCH (n:`' + label + '`) WHERE n.entity_id CONTAINS $kw ' +
     'RETURN id(n) AS id, n.entity_id AS name, coalesce(n.entity_type,"其他") AS type, ' +
@@ -505,11 +628,13 @@ async function radialFetch(session, label, kw, cap, hopsVal) {
     props: r.get('props') || {}
   }));
   if (!centers.length) return { nodes: [], edges: [], centerIds: [] };
+
   const nodeMap = new Map();
   centers.forEach(n => nodeMap.set(n.id, n));
   const seen = new Set(centers.map(n => n.id));
   const edgeMap = new Map();
   let frontier = centers.map(n => n.id);
+  // 2) BFS 一圈一圈扩张，最多 hops 跳、最多 cap 个节点
   for (let h = 1; h <= hopsVal && frontier.length && seen.size < cap; h++) {
     const r1 = await session.run(
         'MATCH (a)-[r]-(b:`' + label + '`) WHERE id(a) IN $frontier AND NOT id(b) IN $seen ' +
@@ -532,6 +657,7 @@ async function radialFetch(session, label, kw, cap, hopsVal) {
     });
     newIds.forEach(id => seen.add(id));
     if (newIds.length) {
+      // 在"见过的全部节点"之间查关系
       const r2 = await session.run(
         'MATCH (a)-[r]->(b) WHERE id(a) IN $seen AND id(b) IN $seen ' +
         'RETURN id(r) AS rid, id(a) AS s, id(b) AS t, coalesce(r.description, type(r)) AS d, ' +
@@ -562,6 +688,7 @@ async function expandFromNode(nodeId, hopsVal) {
     const edgeMap = new Map();
     const typeFs = typeFs.value;
     try {
+      // 取中心节点的所有信息
       const rc = await session.run(
         'MATCH (n:`' + label + '`) WHERE id(n)=$id ' +
         'RETURN id(n) AS id, n.entity_id AS name, coalesce(n.entity_type,"其他") AS type, ' +
@@ -579,6 +706,7 @@ async function expandFromNode(nodeId, hopsVal) {
       nodeMap.set(nodeId, center);
       const seen = new Set([nodeId]);
       let frontier = [nodeId];
+      // BFS 扩展邻居（每轮按 frontier 集合查询 NOT IN seen 的邻居）
       for (let h = 1; h <= hopsVal && frontier.length; h++) {
         const r1 = await session.run(
           'MATCH (a)-[r]-(b) WHERE id(a) IN $frontier AND NOT id(b) IN $seen ' +
@@ -601,6 +729,7 @@ async function expandFromNode(nodeId, hopsVal) {
         });
         newIds.forEach(id => seen.add(id));
         if (newIds.length) {
+          // 取所有"在已见集合内"的关系
           const r2 = await session.run(
             'MATCH (a)-[r]->(b) WHERE id(a) IN $seen AND id(b) IN $seen ' +
             'RETURN id(r) AS rid, id(a) AS s, id(b) AS t, coalesce(r.description, type(r)) AS d, ' +
@@ -633,18 +762,24 @@ async function expandFromNode(nodeId, hopsVal) {
   } finally { loading.value = false; }
 }
 
-/* ===== vis-network 渲染（vis 内置布局 + 完全静态） ===== */
+/* ============================================================
+ * vis-network 渲染（vis 内置布局 + 完全静态）
+ * ============================================================ */
 function renderGraph(nodes, edges, centerIds) {
   // 数据已就绪 → 进入布局定位阶段：保持 loading 遮罩直到 stabilization 完成
   stabilizing.value = true;
-  // 兜底：万一 stabilizationIterationsDone 未触发（极端情况），超时后强制收起遮罩
+  // 兜底：万一 stabilizationIterationsDone 没触发（极端情况），10s 后强制收起
   if (_stabTimer) clearTimeout(_stabTimer);
   _stabTimer = setTimeout(() => { stabilizing.value = false; }, 10000);
+
+  // 先算每个节点的度数（被多少条边连接）
   const deg = {};
   edges.forEach(e => { deg[e.s] = (deg[e.s] || 0) + 1; deg[e.t] = (deg[e.t] || 0) + 1; });
-  // 节点大小按度数做"非线性拉伸"（梯度拉大）
+  // 节点大小按度数做"非线性拉伸"（用 sqrt 让大节点差距更明显，但不会出现"超大节点"）
   const maxDeg = Math.max(1, ...Object.values(deg));
   const minSize = 8, maxSize = 38;
+
+  // 把节点数组转成 vis-network 的 DataSet
   nodesDS = new vis.DataSet(nodes.map(n => {
     const d = deg[n.id] || 0;
     const ratio = Math.sqrt(d / maxDeg);
@@ -656,6 +791,7 @@ function renderGraph(nodes, edges, centerIds) {
       size: sz,
       font: { size: Math.min(16, 10 + Math.round(ratio * 8)), face: 'Microsoft YaHei' },
       shadow: isC ? { enabled: true, color: '#ffd257', size: 20 } : undefined,
+      // 备份原始样式（选中/取消时用）
       _origSize: sz,
       _origShadow: isC ? { enabled: true, color: '#ffd257', size: 20 } : undefined,
       _origBorder: 0,
@@ -664,17 +800,22 @@ function renderGraph(nodes, edges, centerIds) {
       raw: Object.assign({}, n, { isCenter: isC })
     };
   }));
+  // 边 DataSet
   edgesDS = new vis.DataSet(edges.map((e, i) => ({
     id: i, from: e.s, to: e.t, title: e.ds.join('\n'),
     label: showRel.value ? relLabel(e.ds) : undefined,
     raw: e.ds, names: e.kws || [], srcs: e.srcs || [], fps: e.fps || []
   })));
 
-  // 科技感配色（少量金属色，不鲜艳不乱）
+  // 科技感配色（每种 entity_type 一个组颜色）
   const techGroups = {};
   const techTypeList = Array.from(new Set(nodes.map(n => n.type || '其他')));
   techTypeList.forEach(t => { techGroups[t] = { color: colorFor(t) }; });
 
+  // vis-network options：
+  //   - physics.barnesHut 物理引擎：赫尔曼式引力 + 弹簧
+  //   - stabilization.iterations 600：算法跑完自动停止
+  //   - improvedLayout: true：vis 自家做的初始排布优化
   const options = {
     groups: techGroups,
     nodes: {
@@ -690,11 +831,6 @@ function renderGraph(nodes, edges, centerIds) {
       width: 1.0, hoverWidth: 1.6, selectionWidth: 1.4,
       smooth: { enabled: true, type: 'continuous', roundness: 0.4 }
     },
-    // ========== 用 vis-network 内置默认布局（行业最简最好的实践） ==========
-    //   - barnesHut 物理引擎：赫尔曼 + 重心引力 + 阻尼
-    //   - stabilization iterations 600：算法跑完自动停止（之后节点不动）
-    //   - improvedLayout: true：让 vis 内部优化初始排布（避免 randomSeed 随机）
-    //   - 跑完后 setOptions 关掉 physics（防止 ghost 圆 + 后续自动重排）
     physics: {
       enabled: true,
       solver: 'barnesHut',
@@ -721,13 +857,13 @@ function renderGraph(nodes, edges, centerIds) {
     net.on('doubleClick', p => {
       if (p.nodes.length) net.focus(p.nodes[0], { scale: 1.1 });
     });
-    // 在顶层绘制层叠加「选中中心光晕 + 连线脉冲」（浅→深循环）
+    // 在顶层绘制层叠加"选中中心光晕 + 连线脉冲"（浅→深循环）
     net.on('afterDrawing', ctx => drawPulse(ctx));
   } else {
     net.setData({ nodes: nodesDS, edges: edgesDS });
   }
 
-  // 同步把 group 颜色应用到每个节点（确保稳定填充色）
+  // 把 group 颜色应用到每个节点（稳定填充色，跨版本兼容）
   const colorUpd = [];
   for (const n of nodes) {
     const t = n.type || '其他';
@@ -752,12 +888,11 @@ function renderGraph(nodes, edges, centerIds) {
   _allEdgeIds = edges.map((e, i) => i);
   hopsMode.value = 'all';
 
-  // vis-network 内置 layout 完成（stabilizationIterationsDone）后保留极慢的 physics
+  // vis-network 内置布局完成（stabilizationIterationsDone）后保留极慢的 physics
   //   弹簧调很弱、阻尼很大 → 节点只在自己周围轻微浮动（不会互相重叠）
   //   用户点击节点 → onPick 中 stopPhysics 关闭 → 完全静止
   net.once('stabilizationIterationsDone', () => {
     if (!net) return;
-    // 布局完成 → 收起 loading 遮罩（图谱已经可见，消除断裂感）
     stabilizing.value = false;
     if (_stabTimer) { clearTimeout(_stabTimer); _stabTimer = null; }
     // 切到极慢模式：弱弹簧 + 高阻尼，节点只做微幅摆动
@@ -766,12 +901,12 @@ function renderGraph(nodes, edges, centerIds) {
         enabled: true,
         solver: 'barnesHut',
         barnesHut: {
-          gravitationalConstant: -400,   // 极弱引力
-          centralGravity: 0.005,           // 几乎无中心
-          springLength: 240,               // 长弹簧 → 节点之间距离大
-          springConstant: 0.005,           // 极弱弹簧 → 飘动极小
-          damping: 0.92,                   // 高阻尼 → 减速快
-          avoidOverlap: 0.8                // 避免重叠
+          gravitationalConstant: -400,
+          centralGravity: 0.005,
+          springLength: 240,
+          springConstant: 0.005,
+          damping: 0.92,
+          avoidOverlap: 0.8
         },
         stabilization: { enabled: false }
       }
@@ -786,7 +921,9 @@ function renderGraph(nodes, edges, centerIds) {
   });
 }
 
-/* ===== 点节点/点边 → 侧栏 ===== */
+/* ============================================================
+ * 点节点/点边 → 侧栏
+ * ============================================================ */
 function onPick(params) {
   // 点击 → 立刻关掉 vis-network physics（节点永久静止，冻结到当前布局）
   if (net && (params.nodes.length || params.edges.length)) {
@@ -801,6 +938,7 @@ function onPick(params) {
       applyHopsFilter();
       const n = nodesDS.get(id);
       if (n) {
+        // 把当前节点"暂时"放大、加上橙色光晕、加粗边框
         nodesDS.update({
           id,
           size: (n.size || 14) * 1.7,
@@ -809,7 +947,7 @@ function onPick(params) {
           color: { background: '#f59e0b', border: '#9a3412', highlight: { background: '#f59e0b', border: '#9a3412' } }
         });
       }
-      // 取消之前的选中状态（除当前节点）
+      // 取消上一个选中节点的样式（还原"原始"）
       if (_selectedId && _selectedId !== id) {
         const prev = nodesDS.get(_selectedId);
         if (prev) {
@@ -823,13 +961,14 @@ function onPick(params) {
         }
       }
       _selectedId = id;
+      // 居中节点
       net.focus(id, { scale: 1.0, locked: false,
         animation: { duration: 600, easingFunction: 'easeInOutQuad' } });
-      startPulse();
+      startPulse();        // 启动脉冲动画
     } else if (params.edges.length) {
-      // 点边：不需要居中节点
+      // 点边：不切换中心节点
     } else {
-      // 点空白：取消选中 + 停止脉冲动画
+      // 点空白：取消选中 + 停止脉冲
       if (_selectedId) {
         const prev = nodesDS.get(_selectedId);
         if (prev) nodesDS.update({
@@ -842,7 +981,7 @@ function onPick(params) {
         _selectedId = null;
         stopPulse();
       }
-      // 冻结视图：刚才的 focus 动画可能还在跑，立刻 moveTo 到当前位置把它定住
+      // 冻结视图：把当前的 viewPosition/scale 立刻回写，把焦点动画停掉
       if (net && net.getViewPosition) {
         try {
           const p = net.getViewPosition();
@@ -852,7 +991,7 @@ function onPick(params) {
       }
     }
   }
-  // 点击节点 → 仅移动视图 + 高亮 + 详情（不重新画图）
+  // 点击节点 → 仅显示详情，不重新画图；点击边 → 显示"关系详情"；空白 → 隐藏侧栏
   if (params.nodes.length) {
     showNodeSide(params.nodes[0], false);
   } else if (params.edges.length) {
@@ -877,10 +1016,13 @@ function onPick(params) {
   }
 }
 
-/* ===== 选中中心节点：从内向外辐射光晕 + 邻边稳定加深 ===== */
+/* ============================================================
+ * 选中中心节点：从内向外辐射光晕 + 邻边稳定加深
+ * ============================================================ */
 function startPulse() {
-  stopPulse();   // 先清理旧循环并还原上一中心连线的颜色
-  updateEdgeFlash();   // 一次性加深邻边（幂等）
+  stopPulse();                                // 先清理旧循环
+  updateEdgeFlash();                          // 一次性加深邻边（幂等）
+  // 进入持续重绘循环：用 requestAnimationFrame 让 vis-network 反复调用 drawPulse
   const loop = () => {
     if (!net || !_selectedId) { _pulseRaf = null; return; }
     try { net.requestRedraw(); } catch (e) {}
@@ -895,10 +1037,11 @@ function stopPulse() {
   }
   _pulseEdges = [];
 }
+// 把"跟选中节点相邻的边"统一加深为深灰色（让用户看清关系）
 function updateEdgeFlash() {
   const id = _selectedId;
   if (id == null || !edgesDS) return;
-  const hex = '#64748b';   // 固定深灰（强调邻边，不用蓝色）
+  const hex = '#64748b';   // 固定深灰
   const upd = [];
   const flashIds = [];
   edgesDS.forEach(e => {
@@ -906,8 +1049,7 @@ function updateEdgeFlash() {
     if (!rel) return;
     const nbId = e.from === id ? e.to : e.from;
     const nbNode = nodesDS.get(nbId);
-    if (!nbNode || nbNode.hidden) return;   // 只强调当前可见的边（隐藏的不动）
-    // 只在颜色还没设成强调色时才更新，减少 DataSet 写入
+    if (!nbNode || nbNode.hidden) return;          // 跳过隐藏的邻居
     const cur = e.color && e.color.color;
     if (cur !== hex) upd.push({
       id: e.id,
@@ -919,6 +1061,10 @@ function updateEdgeFlash() {
   _pulseEdges = flashIds;
 }
 // 顶层叠加：中心节点"从内向外辐射"的呼吸光环
+//   - ctx 是 vis-network 的 CanvasRenderingContext2D
+//   - ctx.save / restore 保护上下文（不影响其它图层）
+//   - globalCompositeOperation='lighter' 让叠加更亮
+//   - 用 sin 函数做"呼吸"：相位 0..1 循环
 function drawPulse(ctx) {
   if (!net) return;
   const id = _selectedId;
@@ -936,7 +1082,6 @@ function drawPulse(ctx) {
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   for (let k = 0; k < 2; k++) {
-    // 从 baseR（贴近节点）向外扩张：外圈半径随相位增大，透明度随之呼吸
     const rr = baseR + k * (10 + p * 26);
     ctx.beginPath();
     ctx.arc(x, y, rr, 0, Math.PI * 2);
@@ -944,7 +1089,7 @@ function drawPulse(ctx) {
     ctx.lineWidth = 2.4 - k * 0.8;
     ctx.stroke();
   }
-  // 第三圈：近端柔光，强化"由内向外"的发光感（贴近节点边缘的雾化光环）
+  // 第三圈：近端柔光，强化"由内向外"的发光感
   ctx.beginPath();
   ctx.arc(x, y, baseR + 6 + p * 4, 0, Math.PI * 2);
   ctx.strokeStyle = `rgba(${amber}, ${0.16 + p * 0.2})`;
@@ -953,7 +1098,7 @@ function drawPulse(ctx) {
   ctx.restore();
 }
 
-// 侧栏展示某个节点的详情与关系列表
+// showNodeSide(id, isCenter) —— 侧栏展示某个节点的详情与关系列表
 function showNodeSide(id, isCenter) {
   const n = nodesDS && nodesDS.get(id);
   if (!n) { side.visible = false; return; }
@@ -976,7 +1121,7 @@ function showNodeSide(id, isCenter) {
   side.srcIds = srcIds;
   side.fps = fps;
   side.segs = [];
-  side.rels = rels.slice(0, 30).map((e, i) => {
+  side.rels = rels.slice(0, 30).map((e, i) => {     // 最多展示 30 条相关关系
     const dir = e.from === id;
     const d = (e.raw || []).join(' / ').replace(/<SEP>/g, '；');
     return {
@@ -990,12 +1135,14 @@ function showNodeSide(id, isCenter) {
   populateSegs(srcIds, fps);
 }
 
-/* ===== 生命周期 ===== */
+/* ============================================================
+ * 生命周期
+ * ============================================================ */
 onMounted(async () => {
   net = null; nodesDS = null; edgesDS = null;
   try {
     driver = getDriver();
-    await driver.getServerInfo();
+    await driver.getServerInfo();          // 试连一次，确认 Neo4j 在
     setStatus(true, '图谱数据已就绪');
     await switchWorkspace();
   } catch (err) {
@@ -1004,6 +1151,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  // 清理 RAF / 兜底定时器（避免组件卸载后还在跑）
   stopPulse();
   if (_stabTimer) { clearTimeout(_stabTimer); _stabTimer = null; }
 });
@@ -1019,7 +1167,7 @@ watch(() => route.params.ws, async (val) => {
 
 <style scoped>
 /* ============================================================
- * GraphView 专属样式（原 graph.css 全部迁入；scoped 隔离）
+ * GraphView 专属样式（统一内联在 <style scoped>，与组件内聚）
  * ============================================================ */
 .graph-page {
   width: 100%;
@@ -1081,6 +1229,7 @@ watch(() => route.params.ws, async (val) => {
 }
 #dot.ok { background: var(--ok); }
 
+/* 主体：左侧画布 flex:1，右侧栏 340px */
 #main {
   display: flex;
   flex: 1;
@@ -1182,6 +1331,7 @@ watch(() => route.params.ws, async (val) => {
 }
 #side .relsrc .isrc-open { font-size: 11.5px; }
 
+/* 左下实体类型图例 */
 #legend {
   position: absolute;
   left: 14px;
@@ -1236,6 +1386,7 @@ watch(() => route.params.ws, async (val) => {
   display: inline-block;
 }
 
+/* 全屏加载遮罩 */
 #loading {
   position: absolute;
   inset: 0;

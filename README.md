@@ -143,7 +143,7 @@ lightrag-deploy/
 │   └── src/
 │       ├── api/              ← lightrag.js / neo4j.js（HTTP/Bolt 客户端）
 │       ├── views/            ← HomeView / GraphView / QueryView / DocView
-│       ├── styles/           ← main.css（全局+共享） + home/graph/query/doc.css（各 view 专属）
+│       ├── styles/           ← main.css（全局 + 跨视图共性）；各 view 专属样式在 views/*.vue 的 <style scoped>
 │       └── router.js
 │
 ├── tests/                    ← pytest 测试（不依赖 Docker 服务）
