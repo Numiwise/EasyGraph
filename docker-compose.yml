@@ -24,9 +24,9 @@ services:
       - "127.0.0.1:7474:7474"   # Neo4j Browser Web UI（仅本地，外部不可达）
       - "127.0.0.1:7687:7687"   # Bolt 协议（LightRAG 抽取写入此实例，仅本地）
     environment:
-      # NEO4J_PASSWORD 由 .env 提供；缺失时 compose 拒绝启动（fail-fast）。
-      # 写死默认密码会变成"全网通用口令"，违背用户安装后自由替换的初衷。
-      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?请在 .env 中设置 NEO4J_PASSWORD}
+      # NEO4J_PASSWORD 默认值在 .env.example 提供（开箱即用）。
+      # 用户可在 .env 中替换为强随机串；外/公网环境**强烈建议**替换。
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-lightrag-localdev-neo4j}
       NEO4J_server_bolt_listen__address: ":7687"
       NEO4J_server_http_listen__address: ":7474"
       NEO4J_server_memory_heap_initial__size: 256m
@@ -56,8 +56,8 @@ services:
       - "127.0.0.1:7475:7474"   # Neo4j Browser Web UI（展示版，仅本地）
       - "127.0.0.1:7688:7687"   # Bolt 协议（api-bridge 通过 compose 内部网络访问）
     environment:
-      # NEO4J_PASSWORD 由 .env 提供；缺失时 compose 拒绝启动（fail-fast）。
-      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?请在 .env 中设置 NEO4J_PASSWORD}
+      # NEO4J_PASSWORD 默认值在 .env.example 提供（开箱即用）。
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-lightrag-localdev-neo4j}
       NEO4J_server_bolt_listen__address: ":7687"
       NEO4J_server_http_listen__address: ":7474"
       NEO4J_server_memory_heap_initial__size: 256m
@@ -100,14 +100,14 @@ services:
     ports:
       - "127.0.0.1:5432:5432"   # PostgreSQL 协议（仅本地）
     environment:
-      # 全部从 .env 注入；缺失时 compose 拒绝启动（fail-fast），避免默认口令泄露。
-      POSTGRES_USER: ${POSTGRES_USER:?请在 .env 中设置 POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DATABASE:?请在 .env 中设置 POSTGRES_DATABASE}
+      # 默认值在 .env.example 提供（开箱即用）；用户可在 .env 中替换。
+      POSTGRES_USER: ${POSTGRES_USER:-lightrag}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lightrag-localdev-pg}
+      POSTGRES_DB: ${POSTGRES_DATABASE:-lightrag}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:?} -d ${POSTGRES_DATABASE:?}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lightrag} -d ${POSTGRES_DATABASE:-lightrag}"]
       interval: 10s
       timeout: 5s
       retries: 15
@@ -121,9 +121,9 @@ services:
     ports:
       - "127.0.0.1:5050:80"     # pgAdmin Web UI（仅本地）
     environment:
-      # pgAdmin 凭证全部从 .env 注入；缺失时 compose 拒绝启动（fail-fast）。
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:?请在 .env 中设置 PGADMIN_EMAIL}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:?请在 .env 中设置 PGADMIN_PASSWORD}
+      # 默认值在 .env.example 提供（开箱即用）；用户可在 .env 中替换。
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@local.test}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-lightrag-localdev-admin}
       PGADMIN_CONFIG_SERVER_MODE: "False"
       PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
     volumes:
@@ -153,12 +153,13 @@ services:
       # requirements.txt 包含 api-bridge 的 Python 依赖
       - ./requirements.txt:/app/requirements.txt:ro
     environment:
-      # Neo4j 连接（展示版数据库，bolt://neo4j-display:7687，密码从 .env 注入；缺失则启动失败）
+      # Neo4j 连接（展示版数据库）。默认值在 .env.example 提供（开箱即用）。
       NEO4J_URI: "bolt://neo4j-display:7687"
       NEO4J_USER: "neo4j"
-      NEO4J_PASSWORD: "${NEO4J_PASSWORD:?请在 .env 中设置 NEO4J_PASSWORD}"
-      # 后端到前端共享的 bridge token（用于 nginx -> api-bridge 的请求认证）
-      BRIDGE_TOKEN: "${BRIDGE_TOKEN:?请在 .env 中设置 BRIDGE_TOKEN}"
+      NEO4J_PASSWORD: "${NEO4J_PASSWORD:-lightrag-localdev-neo4j}"
+      # 后端到前端共享的 bridge token（用于 nginx -> api-bridge 的请求认证）。
+      # 默认值 dev-bridge-token 让首次开箱即用；外/公网环境**强烈建议**替换。
+      BRIDGE_TOKEN: "${BRIDGE_TOKEN:-dev-bridge-token}"
       # Qdrant 连接（compose 内部网络，服务名=qdrant）
       QDRANT_URL: "http://qdrant:6333"
       QDRANT_CHUNK_COLLECTION: "lightrag_vdb_chunks_baai_bge_m3_1024d"
@@ -193,10 +194,9 @@ services:
     # 安全：key 走 .env（不入 git），不在代码里写死。
     environment:
       LLM_BINDING_API_KEY: "${LLM_BINDING_API_KEY:-}"
-      # Bridge token：nginx 在 /api/ 反代时把它写到 X-Bridge-Token 头，
-      # api-bridge 校验通过才返回数据。这样 nginx 同源 /api/ 调用安全，
-      # 任何绕过 nginx 的直接请求（curl 9630 等）会被 401。
-      BRIDGE_TOKEN: "${BRIDGE_TOKEN:?请在 .env 中设置 BRIDGE_TOKEN}"
+      # Bridge token：nginx 在 /api/ 反代时把它写到 X-Bridge-Token 头。
+      # 默认值 dev-bridge-token 让首次开箱即用；外/公网环境**强烈建议**替换。
+      BRIDGE_TOKEN: "${BRIDGE_TOKEN:-dev-bridge-token}"
     volumes:
       # 前端 SPA 静态产物（Vue3 + Vite 构建后 = dist）
       - ./dist:/usr/share/nginx/html:ro
@@ -278,16 +278,16 @@ services:
       EMBEDDING_DIM: "1024"
       # Qdrant 连接（compose 内部网络，服务名=qdrant）
       QDRANT_URL: "http://qdrant:6333"
-      # Neo4j 连接（密码从 .env 注入，避免硬编码；缺失则启动失败）
+      # Neo4j 连接（默认值在 .env.example 提供；用户可在 .env 中替换）
       NEO4J_URI: "bolt://neo4j:7687"
       NEO4J_USERNAME: "neo4j"
-      NEO4J_PASSWORD: "${NEO4J_PASSWORD:?请在 .env 中设置 NEO4J_PASSWORD}"
-      # PostgreSQL 连接（compose 内部网络，服务名=postgres，密码从 .env 注入）
+      NEO4J_PASSWORD: "${NEO4J_PASSWORD:-lightrag-localdev-neo4j}"
+      # PostgreSQL 连接（默认值在 .env.example 提供；用户可在 .env 中替换）
       POSTGRES_HOST: "postgres"
       POSTGRES_PORT: "5432"
-      POSTGRES_USER: "${POSTGRES_USER:?请在 .env 中设置 POSTGRES_USER}"
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD}"
-      POSTGRES_DATABASE: "${POSTGRES_DATABASE:?请在 .env 中设置 POSTGRES_DATABASE}"
+      POSTGRES_USER: "${POSTGRES_USER:-lightrag}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-lightrag-localdev-pg}"
+      POSTGRES_DATABASE: "${POSTGRES_DATABASE:-lightrag}"
       # 存储后端切换：KV / DocStatus → PostgreSQL（替换默认 JSON 文件存储）
       LIGHTRAG_KV_STORAGE: "PGKVStorage"
       LIGHTRAG_DOC_STATUS_STORAGE: "PGDocStatusStorage"

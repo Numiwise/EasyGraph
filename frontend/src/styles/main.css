@@ -228,3 +228,99 @@ label.lbl { font-size: 12px; color: var(--chrome-dim); }
 .orig-dialog .orig-loading { color: var(--text-3); font-size: 13px; padding: 12px 0; }
 .orig-dialog .orig-body { max-height: 62vh; overflow-y: auto; font-size: 13px; color: var(--text-1);
   line-height: 1.8; }
+
+/* ============================================================
+ * 跨视图共性：AI 等待动画（QueryView 主流式气泡等待）
+ * ------------------------------------------------------------
+ * 行业实践（参考 ChatGPT / Claude / Gemini）：
+ *   - 三个圆点"波浪跳"：错开 0/150/300ms 延迟，整体 1.2s 循环。
+ *     用 transform: translateY 比 opacity 更"弹"。
+ *   - 状态词切换：等待 / 检索 / 生成 / 收尾 四个阶段。
+ *   - 闪烁光标：1s 一闪，加在文字末尾，让用户感觉"还在打字"。
+ *   - 流式响应到达后，HTML 替换为真实内容，caret 自然消失。
+ * ============================================================ */
+@keyframes typing-bounce {
+  0%, 60%, 100% { transform: translateY(0);    opacity: 0.35; }
+  30%           { transform: translateY(-4px); opacity: 1.00; }
+}
+@keyframes typing-blink {
+  0%, 50%   { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+@keyframes typing-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 2px;
+  min-height: 26px;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.4;
+}
+/* 三个圆点：宽度固定 18px，i 元素错开延迟做波浪 */
+.typing-dots {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 26px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+.typing-dots i {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: typing-bounce 1.2s infinite ease-in-out;
+  /* 默认浅色（与品牌主色一致，但根据 bubble 上下文可被覆盖） */
+}
+.typing-dots i:nth-child(1) { animation-delay: 0s;    }
+.typing-dots i:nth-child(2) { animation-delay: 0.15s; }
+.typing-dots i:nth-child(3) { animation-delay: 0.30s; }
+/* AI 气泡底色偏白，圆点用主色 #1f6feb，对比度足够 */
+.bubble.ai .typing-dots i { background: var(--primary); }
+
+/* 状态文字：左→右 淡入；变色版根据 data-stage 切换 */
+.typing-text {
+  font-size: 13px;
+  color: var(--text-2);
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+/* 闪烁光标：纯 CSS 1s 闪烁，比插入 ▍ 字符更精致 */
+.typing-text .caret {
+  display: inline-block;
+  width: 1px;
+  height: 14px;
+  margin-left: 2px;
+  vertical-align: -2px;
+  background: var(--text-2);
+  animation: typing-blink 1s steps(1) infinite;
+}
+
+/* 阶段提示词（流式响应到达后立即切到"生成中"） */
+.typing[data-stage="search"] .typing-text { color: var(--text-2); }
+.typing[data-stage="generate"] .typing-text { color: var(--text-1); font-weight: 500; }
+.typing[data-stage="finalize"] .typing-text { color: var(--text-3); font-style: italic; }
+
+/* 流式响应"打字光标"：跟在真实回答末尾，告诉用户"还在生成"
+   （行业惯例：ChatGPT/Claude 在 streaming 阶段给一个 2px 宽的细竖条） */
+.bubble.ai .md .stream-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: -2px;
+  background: var(--primary);
+  animation: typing-blink 1s steps(1) infinite;
+}

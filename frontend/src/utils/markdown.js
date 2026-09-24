@@ -151,13 +151,39 @@ export function mdToHtml(s) {
 
 /* ---------- 3) waitingHtml：等待回答时的占位动画 ----------
  * 公开导出。点击发送 → 流式首字节前的兜底动画。
- * 配套样式在 main.css 里的 .typing/.typing-dots/.caret 等。
+ *
+ * 业务流（与 QueryView 的 stepIdx 对齐）：
+ *   - stage='search'    检索资料（默认）
+ *   - stage='generate'  正在生成回答（流式响应到达后）
+ *   - stage='finalize'  收尾（流结束、还在拼 markdown）
+ *
+ * 行业实践（参考 ChatGPT / Claude / Gemini）：
+ *   - 三圆点"波浪跳"用 CSS animation，不靠 JS 定时器（性能更好）。
+ *   - caret 用 CSS blink 比 ▍ 字符更精致（颜色与状态词一致）。
+ *   - 用 data-stage 属性驱动样式切换，外层只需传一个 stage 参数。
+ *
+ * 配套样式在 main.css 里的 .typing/.typing-dots/.caret/.stream-caret。
  */
-export function waitingHtml() {
-  return '<div class="typing">' +
+export function waitingHtml(stage) {
+  // 阶段文案映射
+  const txt = stage === 'generate' ? '正在生成回答'
+            : stage === 'finalize' ? '正在收尾'
+            : '正在检索资料';
+  return '<div class="typing" data-stage="' + (stage || 'search') + '">' +
     '<span class="typing-dots"><i></i><i></i><i></i></span>' +
-    '<span class="typing-text">正在组织答案<span class="caret"></span></span>' +
+    '<span class="typing-text">' + txt + '<span class="caret"></span></span>' +
     '</div>';
+}
+
+/* ---------- 3.5) streamCaretHtml：流式响应末尾的闪烁光标 ----------
+ * 公开导出。流式响应过程中跟在 markdown 后面，告诉用户"还在打字"。
+ * 行业惯例：ChatGPT / Claude 在 streaming 阶段给一个 2px 宽的细竖条，
+ * 用 CSS animation: typing-blink 1s steps(1) infinite（详见 main.css）。
+ * 之所以做成单独函数而不是模板里写死字符串，是为了避免 v-html 属性解析问题
+ * （v-html 字符串里的双引号会让模板 attribute 提前闭合）。
+ */
+export function streamCaretHtml() {
+  return '<span class="stream-caret"></span>';
 }
 
 

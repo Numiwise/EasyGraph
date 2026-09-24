@@ -2,13 +2,26 @@
 # -*- coding: utf-8 -*-
 """同义实体合并：将别名节点所有关系转移到规范名节点（保留关系类型与属性），删除别名节点。
 用法: python merge_aliases.py [label ...]（默认全部）
+
+安全说明：
+    AUTH 不再写死在代码里，而是从环境变量 NEO4J_PASSWORD 读取。
+    默认值在 .env.example 提供（开发用，与 docker-compose 默认一致）。
+    真正运行前请确保本目录或父目录存在 .env 文件，或直接 export NEO4J_PASSWORD。
 """
+import os
 import sys
 from collections import defaultdict
 from neo4j import GraphDatabase
 
-URI = "bolt://localhost:7688"   # 展示版 neo4j-display
-AUTH = ("neo4j", "LightRAG2026neo4j")
+# ===== 配置（凭证从环境变量读）=====
+URI = os.environ.get("NEO4J_URI_PRUNE", "bolt://localhost:7688")
+AUTH_USER = os.environ.get("NEO4J_USERNAME", "neo4j")
+AUTH_PASSWORD = os.environ.get("NEO4J_PASSWORD", "")
+AUTH = (AUTH_USER, AUTH_PASSWORD)
+if not AUTH_PASSWORD:
+    print("⚠️  NEO4J_PASSWORD 环境变量未设置，无法连接 Neo4j。")
+    print("   请在 .env 中设置后重试；详见 .env.example。")
+    sys.exit(1)
 LABELS = ["g00_master_all", "g01_people_literature", "g02_places_routes", "g03_varieties",
           "g04_history_institutions", "g05_lingnan_liwan", "g06_industry_tech"]
 

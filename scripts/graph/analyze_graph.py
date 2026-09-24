@@ -19,15 +19,26 @@ analyze_graph.py —— 对 6 个子图工作区做"清点体检"
 
 运行：
     python scripts/graph/analyze_graph.py
+
+安全说明：
+    AUTH 不再写死在代码里，而是从环境变量 NEO4J_PASSWORD 读取。
+    默认值在 .env.example 提供（开发用，与 docker-compose 默认一致）。
+    真正运行前请确保本目录或父目录存在 .env 文件，或直接 export NEO4J_PASSWORD。
 """
+import os
 import sys
 from collections import Counter, deque  # Counter 做计数；deque 做 BFS 队列
 from neo4j import GraphDatabase          # Neo4j 的 Python 驱动（bolt 协议）
 
-# ===== 配置（与部署环境一致，必要时改这里即可） =====
-# 说明：AUTH 是本机/内网开发库固定凭据；若推到公网请改读环境变量，勿硬编码。
-URI = "bolt://lightrag-neo4j:7687"
-AUTH = ("neo4j", "LightRAG2026neo4j")
+# ===== 配置（凭证从环境变量读）=====
+URI = os.environ.get("NEO4J_URI_ANALYZE", "bolt://lightrag-neo4j:7687")
+AUTH_USER = os.environ.get("NEO4J_USERNAME", "neo4j")
+AUTH_PASSWORD = os.environ.get("NEO4J_PASSWORD", "")
+AUTH = (AUTH_USER, AUTH_PASSWORD)
+if not AUTH_PASSWORD:
+    print("⚠️  NEO4J_PASSWORD 环境变量未设置，无法连接 Neo4j。")
+    print("   请在 .env 中设置后重试；详见 .env.example。")
+    sys.exit(1)
 # 6 个子库（不包含总图谱 g00_master_all；total 节点数太杂不好盘点）
 LABELS = ["g01_people_literature", "g02_places_routes", "g03_varieties",
           "g04_history_institutions", "g05_lingnan_liwan", "g06_industry_tech"]

@@ -10,7 +10,7 @@
   <div class="doc-page">
     <div id="docbar">
       <span class="brand">
-        <span class="bbadge" :style="{background: meta.color}">{{ meta.badge }}</span>
+        <WorkspaceBadge :meta="meta" />
         <span class="title">{{ meta.name }}</span>
       </span>
       <el-button size="small" @click="goBack">‹ 返回</el-button>
@@ -30,6 +30,8 @@ import { useRoute, useRouter } from 'vue-router';
 import { wsMeta } from '../composables/useNeo4j.js';
 import { kbUrl } from '../composables/useLightragApi.js';
 import { renderMarkdown } from '../utils/markdown.js';
+// 通用工作区徽标组件（与 GraphView / QueryView 顶部一致），避免手搓 .bbadge
+import WorkspaceBadge from '../components/WorkspaceBadge.vue';
 
 /* ----- 响应式状态 ----- */
 const ws = ref('');

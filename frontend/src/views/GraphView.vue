@@ -8,8 +8,7 @@
       2) 拿全部 entity_type 列表 → 渲染"实体类型图例"组件（可勾选筛选）
       3) 取该 workspace 的图数据（节点 + 关系），渲染到 vis-network
       4) 用户点击节点 → 右侧侧栏显示节点的描述、属性、原文片段、相关关系
-      5) 用户搜索实体名 → 以该实体为中心展开 k 跳邻居
-      6) 整个动作都可以通过顶部工具条操作：跳数 / 上限 / 显示关系名 / 适应视图 等
+    5) 整个动作都可以通过顶部工具条操作：跳数 / 显示关系名 / 适应视图 等
 
   Vue 3 涉及的概念（给初学者）：
     - defineProps({ ws0 })：从路由 props 拿到 workspace id（router 会自动传过来）
@@ -30,12 +29,6 @@
       <el-button size="small" type="primary" @click="goQuery">智能问答</el-button>
       <label class="lbl">图谱</label>
       <WorkspaceSelect v-model="ws" width="170px" filterable @change="onWsChange" />
-      <label class="lbl">上限</label>
-      <el-select v-model="limitNum" @change="reload" style="width:88px">
-        <el-option v-for="l in limitOptions" :key="l" :value="l" :label="String(l)"></el-option>
-      </el-select>
-      <el-input v-model="keyword" placeholder="搜索实体名，回车出子图" style="width:200px"
-        @keyup.enter="searchGo" clearable></el-input>
       <label class="lbl">跳数</label>
       <el-select v-model="hops" @change="onHopsChange" style="width:78px">
         <el-option v-for="h in hopsOptions" :key="h" :value="h" :label="h + '跳'"></el-option>
@@ -66,10 +59,7 @@
 
         <!-- 描述（来自 Neo4j properties.description） -->
         <div v-if="side.descr" class="descr">
-          <div class="section-head" @click="descrOpen = !descrOpen">
-            <span class="sh-title">描述</span>
-            <span class="sh-tog">{{ descrOpen ? '收起 ▲' : '展开 ▼' }}</span>
-          </div>
+          <SectionHead title="描述" :open="descrOpen" @toggle="descrOpen = !descrOpen" />
           <div v-show="descrOpen" class="descr-body">{{ side.descr }}</div>
         </div>
 
@@ -145,6 +135,7 @@ import WorkspaceSelect from '../components/WorkspaceSelect.vue';
 import TypeLegend from '../components/TypeLegend.vue';
 import ChunkPanel from '../components/ChunkPanel.vue';
 import AttrTable from '../components/AttrTable.vue';
+import SectionHead from '../components/SectionHead.vue';
 
 // 把 DataSet 和 Network 装到 vis 对象上，便于下方统一加前缀
 const vis = { DataSet, Network };
@@ -203,13 +194,9 @@ const router = useRouter();
 const ws = ref(props.ws0 || 'g00_master_all');
 // workspace 列表下拉选项
 const wsOptions = WS_META.map(m => ({ v: m.id, t: m.name }));
-// 全图模式的"节点上限"
-const limitNum = ref(300);
-// 上限可选值
-const limitOptions = [150, 300, 600, 1000];
-// 搜索关键词
-const keyword = ref('');
-// 跳数（搜索/点击展开都用这个）
+// 全图模式的"节点上限"（固定值，搜索功能已移除）
+const LIMIT = 300;
+// 跳数（点击展开都用这个）
 const hops = ref(1);
 const hopsOptions = [1, 2, 3, 4, 5];
 // 连接状态：ok + text 两段（红/绿点 + 文字）
@@ -235,6 +222,29 @@ const centerId = ref(null);
 const hopsMode = ref('all');
 // 全图邻接表（renderGraph 时存到 _adj），用于"按跳数隐藏远处节点"
 let _adj = null;
+// _distanceAdj(start, target)：用 _adj 做 BFS 计算 start→target 的最短跳数
+//   用在 renderGraph 给新节点分配初始同心圆位置（避免 stabilization 重跑变圆盘）
+function _distanceAdj(start, target) {
+  if (!_adj || start == null || target == null) return 1;
+  if (start === target) return 0;
+  const seen = new Set([start]);
+  let frontier = [start];
+  let hop = 0;
+  while (frontier.length) {
+    hop++;
+    const next = [];
+    for (const id of frontier) {
+      const ns = _adj[id];
+      if (!ns) continue;
+      for (const nid of ns) {
+        if (nid === target) return hop;
+        if (!seen.has(nid)) { seen.add(nid); next.push(nid); }
+      }
+    }
+    frontier = next;
+  }
+  return 99;  // 不可达
+}
 let _allNodeIds = [];
 let _allEdgeIds = [];
 
@@ -299,8 +309,18 @@ function goQuery() {
     '#/query?ws=' + encodeURIComponent(ws.value);
   window.open(url, '_blank');
 }
-// 切换 workspace：直接改 URL（路由 watch 会触发 switchWorkspace）
-function onWsChange(v) { router.push('/graph/' + v); }
+// 切换 workspace：
+//   1) 同步 ws.value（v-model 已经更新，这里再保险写一次）
+//   2) URL 同步到路由（让浏览器地址栏可分享/刷新可恢复）
+//   3) 直接 reload（不能再依赖 watch：watch 在 v-model 之后触发，
+//      此时 ws.value === val，watch 内部 if (val !== ws.value) 会跳过）。
+function onWsChange(v) {
+  ws.value = v;
+  // URL 同步（如果新值与当前路由不同则 push，否则跳过避免无意义 history）
+  if (route.params.ws !== v) router.push('/graph/' + v);
+  // 直接调 switchWorkspace 重新加载数据（不依赖 watch）
+  switchWorkspace();
+}
 
 /* ============================================================
  * 溯源：点击 chunk 旁的"查看原文"按钮
@@ -395,7 +415,10 @@ async function switchWorkspace() {
   document.title = currentMeta.value.name + ' · 妃子笑荔枝文化图谱';
   try {
     await loadTypes(ws.value);    // 拿 entity_type 列表 + 颜色映射
-    await loadGraph('');          // 全图模式
+    await loadGraph();          // 全图模式
+    // 第一次进入此 ws（net 是新创建的）：物理默认开启 → 渲染后会走 stabilizationIterationsDone
+    //   → afterStabilize 自动切到极慢模式。这里不需要额外操作。
+    // 再次进入同一 ws（net 是从 destroy() 后重建）：同上。
   } finally { loading.value = false; }
 }
 
@@ -479,8 +502,6 @@ function applyHopsFilter() { refreshVisibility(); }
 /* ============================================================
  * 顶部工具栏动作
  * ============================================================ */
-// 搜索关键词 → 以关键词为中心 k 跳展开
-function searchGo() { centerId.value = null; loadGraph(keyword.value.trim()); }
 // 跳数变化 → 切到 sub 或 all 模式
 function onHopsChange() {
   hopsMode.value = (centerId.value != null && centerId.value !== '') ? 'sub' : 'all';
@@ -489,16 +510,20 @@ function onHopsChange() {
     ? ('已显示「中心节点」' + hops.value + ' 跳邻居')
     : ('跳数 ' + hops.value + '（点击节点后生效）'));
 }
-// 重新加载（通常由"上限"变化触发）
-function reload() { loadGraph(keyword.value.trim()); }
-// 显示全部：清空关键词 + 中心节点 + 跳数，回到全图模式
+// 显示全部：清空中心节点 + 跳数，回到全图模式
+//   物理引擎保持开启（极慢模式），刷新一次 visibility 后 fit 让节点重新分布在视野中央。
 function showAll() {
-  keyword.value = '';
   centerId.value = '';
   hopsMode.value = 'all';
   refreshVisibility();
   fitView();
 }
+
+// onPick：点击节点 → 立刻关掉物理，节点永久静止（保留之前的设计意图）
+//   注意：点击节点 → 图立即冻结到当前布局，不再浮动 → 这是用户预期的体验。
+//   注意：刷新数据前先动物理 → 切跳数时不动。
+//   关键：renderGraph 不会主动开物理，所以 onPick 之后再加载数据，物理保持关。
+//   取消选中时也不开物理（用户已经选中过 → 节点位置稳定 → 不需要再浮动）。
 // 适应视图（居中 + 缩放到合适大小）
 function fitView() { if (net) net.fit({ animation: true }); }
 
@@ -510,10 +535,16 @@ function relLabel(ds) {
   const s = (Array.isArray(ds) ? ds[0] : '') || '';
   return s.length > 16 ? s.slice(0, 16) + '…' : s;
 }
-// 切换"显示关系名称"：三步同时改（数据 label + font size + 强制重绘）
+// 切换"显示关系名称"：三步同时改（数据 label + font size + 强制重绘）。
+//   关键：仅改 label 字符串在某些 vis-network 版本下不会立刻清掉已渲染的标签缓存，
+//   必须同时把 edges.font.size 设为 0（渲染层）才能彻底隐藏文字。
 function toggleRel() {
   showRel.value = !showRel.value;
   if (!edgesDS || !net) return;
+  // 先冻结物理引擎，让这个按钮与"运动"彻底解耦（业务上此按钮不需要任何运动）。
+  //   根因：stabilization 后物理仍处"极慢模式"（enabled=true），下方
+  //   setOptions/redraw 会顺带步进一帧物理导致节点位移。关掉后节点立即静止。
+  try { net.setOptions({ physics: { enabled: false } }); } catch (e) {}
   // 1) 改每条边的 label（数据层）
   edgesDS.update(edgesDS.get().map(e => ({
     id: e.id, label: showRel.value ? relLabel(e.raw) : ''
@@ -534,39 +565,21 @@ function toggleRel() {
 }
 
 /* ============================================================
- * 图查询入口（两种模式）：
- *   - 有 searchText → 径向 k 跳搜索（api.search），后端完成 BFS 展开
- *   - 无 searchText → 全图模式，按度数取核心节点（api.graph）
+ * 图查询入口：全图模式，按度数取核心节点（api.graph）
  * 数据改由后端 api-bridge 从 Neo4j 查询，前端不再直连数据库。
  * ============================================================ */
-async function loadGraph(searchText) {
-  const limit = limitNum.value;
+async function loadGraph() {
   loading.value = true;
   const t0 = performance.now();
   try {
-    let result;
-    if (searchText) {
-      // 搜索模式：径向 k 跳展开，数据由后端 api-bridge 查询
-      // api.search(workspace, 关键词, { hops: 跳数, cap: 节点上限, types: 类型筛选 })
-      result = await api.search(ws.value, searchText, {
-        hops: hops.value, cap: limit, types: typeFs.value
-      });
-    } else {
-      // 全图模式：按度数取前 N，数据由后端 api-bridge 查询
-      // api.graph(workspace, { limit: 节点上限, types: 类型筛选 })
-      centerId.value = null;
-      result = await api.graph(ws.value, { limit, types: typeFs.value });
-    }
-    // 后端返回 { nodes, edges, centerIds }，与 renderGraph 接口一致
+    // 全图模式：按度数取前 N，数据由后端 api-bridge 查询
+    centerId.value = null;
+    hopsMode.value = 'all';
+    const result = await api.graph(ws.value, { limit: LIMIT, types: typeFs.value });
     renderGraph(result.nodes, result.edges, result.centerIds || []);
     const ms = Math.round(performance.now() - t0);
-    if (searchText && !result.nodes.length) {
-      setStatus(true, '未找到匹配实体（仅支持名称子串）');
-    } else {
-      const pre = result.centerIds?.length ? ('中心 ' + result.centerIds.length + ' · ') : '';
-      const tf = selectedTypes.value.length ? ('已筛类型 ' + selectedTypes.value.length + ' 种 · ') : '';
-      setStatus(true, tf + pre + '节点 ' + result.nodes.length + ' · 关系 ' + result.edges.length + ' · 加载耗时 ' + ms + 'ms');
-    }
+    const tf = selectedTypes.value.length ? ('已筛类型 ' + selectedTypes.value.length + ' 种 · ') : '';
+    setStatus(true, tf + '节点 ' + result.nodes.length + ' · 关系 ' + result.edges.length + ' · 加载耗时 ' + ms + 'ms');
   } catch (err) {
     console.error(err);
     setStatus(false, '加载失败: ' + (err.message || err));
@@ -584,6 +597,8 @@ async function expandFromNode(nodeId, hopsVal) {
       hops: hopsVal, types: typeFs.value
     });
     centerId.value = nodeId;  // 记住中心，类型筛选变化时可复现
+    // 节点展开后切到 sub 模式（用 _adj 做 BFS 隐藏远处节点）
+    hopsMode.value = 'sub';
     renderGraph(result.nodes, result.edges, [nodeId]);
     showNodeSide(nodeId, true);
     if (net) net.focus(nodeId, { scale: 0.8, animation: { duration: 400 } });
@@ -600,14 +615,31 @@ async function expandFromNode(nodeId, hopsVal) {
 }
 
 /* ============================================================
- * vis-network 渲染（vis 内置布局 + 完全静态）
+ * vis-network 渲染
+ *   设计目标（与用户体验对应）：
+ *     - 首次加载：让物理引擎做一次完整 stabilization，几百节点从一团散开，
+ *       然后切到"极慢模式"（弱弹簧 + 高阻尼）让节点只做轻微浮动（参考旧版本效果）。
+ *     - 切换跳数 / 切换类型筛选 / 展开节点：
+ *         * 关掉物理 → 节点位置完全保留
+ *         * 新节点按"基于中心节点的 BFS 同心圆"显式指定 x, y（避免堆在 (0,0)）
+ *       效果：图"纹丝不动"，新节点落在同心圆上，体验稳定。
+ *     - 切换 ws / "显示全部"：物理开一次做布局，stabilization 完成立刻切回极慢模式。
  * ============================================================ */
 function renderGraph(nodes, edges, centerIds) {
   // 数据已就绪 → 进入布局定位阶段：保持 loading 遮罩直到 stabilization 完成
   stabilizing.value = true;
-  // 兜底：万一 stabilizationIterationsDone 没触发（极端情况），10s 后强制收起
+  // 兜底：10s 后强制收起遮罩（防止极端情况下 stabilizationIterationsDone 不触发）
   if (_stabTimer) clearTimeout(_stabTimer);
   _stabTimer = setTimeout(() => { stabilizing.value = false; }, 10000);
+
+  // 关键：是否保留图谱物理布局？
+  //   - 首次加载（net === null）：options 里 physics.enabled=true，让 vis 跑一次完整 stabilization。
+  //   - 后续加载（net 已存在）：强制关物理，防止 stabilization 把已有节点拉散成"大圆盘"。
+  //   - caller（loadGraph/showAll/expandFromNode）不再需要关心开关物理。
+  const isFirstLoad = !net;
+  if (!isFirstLoad) {
+    try { net.setOptions({ physics: { enabled: false } }); } catch (e) {}
+  }
 
   // 先算每个节点的度数（被多少条边连接）
   const deg = {};
@@ -616,15 +648,45 @@ function renderGraph(nodes, edges, centerIds) {
   const maxDeg = Math.max(1, ...Object.values(deg));
   const minSize = 8, maxSize = 38;
 
-  // 把节点数组转成 vis-network 的 DataSet
-  nodesDS = new vis.DataSet(nodes.map(n => {
+  // 把节点数组转成 vis-network 的节点对象
+  //   关键（仅对非首次加载）：
+  //     - 已有节点：位置 = DataSet 现有 x/y（不重置，避免图抖动）
+  //     - 新节点：按"以中心为圆心的同心圆"分配初始 x, y（避免全部堆在 (0,0)）
+  //   - 首次加载（net=null）：不显式指定 x, y，由 vis-network 物理引擎自由布局。
+  const _posCache = isFirstLoad ? new Map() : (() => {
+    const m = new Map();
+    if (nodesDS) nodesDS.forEach(n => { if (n.x != null && n.y != null) m.set(n.id, { x: n.x, y: n.y }); });
+    return m;
+  })();
+  const RADIUS_PER_HOP = 220;
+  const cid = (centerIds && centerIds.length) ? centerIds[0] : null;
+  const centerPos = cid && _posCache.get(cid) ? _posCache.get(cid) : { x: 0, y: 0 };
+  const newNodes = nodes.map(n => {
     const d = deg[n.id] || 0;
     const ratio = Math.sqrt(d / maxDeg);
     const sz = minSize + ratio * (maxSize - minSize);
     const isC = centerIds.indexOf(n.id) !== -1;
+    // 非首次加载：给新节点显式指定初始位置（沿用旧节点的同心圆 BFS 距离）
+    let explicitXY;
+    if (!isFirstLoad) {
+      if (_posCache.has(n.id)) {
+        // 复用旧位置（保留用户视觉习惯）
+        explicitXY = _posCache.get(n.id);
+      } else if (cid && !isC) {
+        // 新节点：按 BFS 跳数计算同心圆半径 + 用 id 决定角度（同一 id 落点稳定）
+        const hop = (_adj ? _distanceAdj(cid, n.id) : 1);
+        const r = Math.max(1, hop) * RADIUS_PER_HOP;
+        const ang = ((n.id * 137) % 360) / 180 * Math.PI;
+        explicitXY = { x: centerPos.x + r * Math.cos(ang), y: centerPos.y + r * Math.sin(ang) };
+      } else {
+        explicitXY = { x: centerPos.x, y: centerPos.y };
+      }
+    }
     return {
       id: n.id, label: (isC ? '★ ' : '') + n.name, group: n.type,
       value: d + 1,
+      // 显式位置（仅非首次）；首次让 vis-network 自己布局
+      ...(explicitXY ? { x: explicitXY.x, y: explicitXY.y } : {}),
       size: sz,
       font: { size: Math.min(16, 10 + Math.round(ratio * 8)), face: 'Microsoft YaHei' },
       shadow: isC ? { enabled: true, color: '#ffd257', size: 20 } : undefined,
@@ -636,13 +698,26 @@ function renderGraph(nodes, edges, centerIds) {
         highlight: { background: colorFor(n.type || '其他'), border: '#1f6feb' } },
       raw: Object.assign({}, n, { isCenter: isC })
     };
-  }));
-  // 边 DataSet
-  edgesDS = new vis.DataSet(edges.map((e, i) => ({
+  });
+  // 边对象
+  const newEdges = edges.map((e, i) => ({
     id: i, from: e.s, to: e.t, title: e.ds.join('\n'),
     label: showRel.value ? relLabel(e.ds) : undefined,
     raw: e.ds, names: e.kws || [], srcs: e.srcs || [], fps: e.fps || []
-  })));
+  }));
+
+  if (!nodesDS) {
+    // 首次创建：新建 DataSet，让 vis-network 用物理做一次完整 stabilization
+    nodesDS = new vis.DataSet(newNodes);
+    edgesDS = new vis.DataSet(newEdges);
+  } else {
+    // 后续调用：复用 DataSet，clear+add 是细粒度更新，
+    //   已存在的节点位置/样式由 vis-network 保留；新节点由 x, y 显式指定（同心圆）。
+    nodesDS.clear();
+    edgesDS.clear();
+    nodesDS.add(newNodes);
+    edgesDS.add(newEdges);
+  }
 
   // 科技感配色（每种 entity_type 一个组颜色）
   const techGroups = {};
@@ -696,9 +771,9 @@ function renderGraph(nodes, edges, centerIds) {
     });
     // 在顶层绘制层叠加"选中中心光晕 + 连线脉冲"（浅→深循环）
     net.on('afterDrawing', ctx => drawPulse(ctx));
-  } else {
-    net.setData({ nodes: nodesDS, edges: edgesDS });
   }
+  // 注意：net 已存在时不要 net.setData（会触发 stabilization 让节点飞散）。
+  //   数据更新已经通过 nodesDS.clear()+add() 完成，vis-network 自动通知渲染。
 
   // 把 group 颜色应用到每个节点（稳定填充色，跨版本兼容）
   const colorUpd = [];
@@ -723,16 +798,19 @@ function renderGraph(nodes, edges, centerIds) {
   _adj = adj;
   _allNodeIds = nodes.map(n => n.id);
   _allEdgeIds = edges.map((e, i) => i);
-  hopsMode.value = 'all';
+  // 注意：hopsMode 不在这里强制重置！
+  //   sub 模式由 expandFromNode/onPick 切到；all 模式由 caller（loadGraph/switchWorkspace）切到。
+  //   renderGraph 是纯渲染函数，把这个职责让出去能避免"刚设的 sub 被自己冲掉"。
 
   // vis-network 内置布局完成（stabilizationIterationsDone）后保留极慢的 physics
   //   弹簧调很弱、阻尼很大 → 节点只在自己周围轻微浮动（不会互相重叠）
   //   用户点击节点 → onPick 中 stopPhysics 关闭 → 完全静止
+  // 注意：仅首次加载时会触发 stabilization（非首次物理已关，不会触发）。
   net.once('stabilizationIterationsDone', () => {
     if (!net) return;
     stabilizing.value = false;
     if (_stabTimer) { clearTimeout(_stabTimer); _stabTimer = null; }
-    // 切到极慢模式：弱弹簧 + 高阻尼，节点只做微幅摆动
+    // 切到极慢模式：弱弹簧 + 高阻尼，节点只做微幅摆动（参考旧版本效果）
     net.setOptions({
       physics: {
         enabled: true,
@@ -756,6 +834,15 @@ function renderGraph(nodes, edges, centerIds) {
       } catch (e) {}
     }
   });
+
+  // 兜底：非首次加载时物理已关，stabilizationIterationsDone 不会触发；
+  //   此时直接关掉 loading 遮罩即可（不动物理，让用户看到稳定的图）。
+  if (!isFirstLoad) {
+    stabilizing.value = false;
+    if (_stabTimer) { clearTimeout(_stabTimer); _stabTimer = null; }
+    // fit 一次让新节点在视野中央
+    try { net.fit({ animation: false }); } catch (e) {}
+  }
 }
 
 /* ============================================================
@@ -992,7 +1079,9 @@ onBeforeUnmount(() => {
   if (_stabTimer) { clearTimeout(_stabTimer); _stabTimer = null; }
 });
 
-// 路由参数变化（从导航页/别的子图跳转进来）→ 切换图谱
+// 路由参数变化（从导航页 / 其它入口直接打开某子图 URL 时）→ 切换图谱
+// 已经在 onWsChange 主动 push 路由的路径里不用走这里（onWsChange 自己 reload）
+// 这里只处理"URL 是入口"的情形（如直接打开 #/graph/g03_varieties）
 watch(() => route.params.ws, async (val) => {
   if (val && val !== ws.value) {
     ws.value = val;

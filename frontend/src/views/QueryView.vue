@@ -87,7 +87,14 @@
             <div v-for="c in filteredConvs" :key="c.id" class="hd-item"
               :class="{ active: c.id === currentConvId }" @click.stop="loadConv(c.id)">
               <div class="hd-item-main">
-                <div v-if="renamingId === c.id" class="hd-rename-input">{{ renamingTitle }}</div>
+                <div v-if="renamingId === c.id" class="hd-rename-input">
+                  <!-- 用 el-input 实现真输入（之前 div 不能键入） -->
+                  <el-input v-model="renamingTitle" size="small" placeholder="新标题"
+                    :ref="(el) => el && renameRefs.set(c.id, el)"
+                    @keydown.enter="commitRename()"
+                    @keydown.esc="cancelRename()"
+                    @blur="commitRename()"></el-input>
+                </div>
                 <div v-else class="hd-item-title" :title="c.title"
                   @dblclick.stop="startRename(c.id)">{{ c.title }}</div>
                 <div class="hd-item-meta">
@@ -97,10 +104,11 @@
                 </div>
               </div>
               <div class="hd-item-actions" @click.stop>
-                <button type="button" class="hd-act-btn"
-                  @click.stop="startRename(c.id)" title="重命名">✎</button>
-                <button type="button" class="hd-act-btn hd-act-del"
-                  @click.stop="deleteConv(c.id)" title="删除">🗑</button>
+                <!-- Element Plus text 按钮：圆角无背景，hover 加浅色底；与卡片风格融合 -->
+                <el-button link size="small" class="hd-act-btn"
+                  @click.stop="startRename(c.id)" title="重命名">✎</el-button>
+                <el-button link size="small" class="hd-act-btn hd-act-del"
+                  @click.stop="deleteConv(c.id)" title="删除">🗑</el-button>
               </div>
             </div>
           </div>
@@ -119,14 +127,7 @@
               <span class="chat-title">智能问答 · {{ currentMeta.name }}</span>
             </div>
             <!-- 进度条：4 步（解析 / 检索 / 取原文 / 组织答案） -->
-            <div class="progress" v-show="showProgress">
-              <div class="pbar"><span class="pfill" :style="{ width: ((stepIdx+1)/steps.length*100) + '%' }"></span></div>
-              <div class="steps">
-                <div v-for="(s, i) in steps" :key="i" class="step" :class="{ on: i <= stepIdx, cur: i === stepIdx }">
-                  <span class="dot"></span>{{ s }}
-                </div>
-              </div>
-            </div>
+            <ProgressSteps :steps="steps" :active="stepIdx" :show="showProgress" />
             <!-- 推荐问题：未提问时显示，点击直接 runQuery(p) -->
             <div v-if="messages.length === 0" class="presets-inline">
               <div class="pc-lbl">推荐问题（点击直接提问）</div>
@@ -136,12 +137,22 @@
             </div>
             <!-- 聊天滚动区 -->
             <div ref="chatScroll" class="chat-scroll" @click="onChatClick"
-              @mouseover="onChatOver" @mousemove="onChatMove" @mouseleave="onChatLeave">
+              @mouseover="onChatOver" @mousemove="onChatMove" @mouseleave="onChatLeave"
+              @scroll="onChatScroll">
               <div class="bubbles">
                 <div v-for="(m, i) in messages" :key="i" class="bubble-row" :class="m.role">
                   <div v-if="m.role === 'ai'" class="avatar">AI</div>
-                  <!-- AI 气泡用 v-html 注入 mdToHtml 输出；用户气泡用 escapeHtml 转义 -->
-                  <div class="bubble" :class="m.role" v-html="m.role === 'ai' ? (m.html || waitingHtml()) : escapeHtml(m.text)"></div>
+                  <!-- AI 气泡用 v-html 注入 mdToHtml 输出；用户气泡用 escapeHtml 转义。
+                       三种渲染分支：
+                       1) 流式正在生成（m.streaming && !m.html）→ 显示"正在生成回答"+三圆点动画
+                       2) 检索阶段（!m.html）                     → 显示"正在检索资料"+三圆点动画
+                       3) 流式响应中（m.streaming && m.html）      → 显示真实 markdown + 末尾闪烁光标
+                       4) 完成                               → 真实 markdown（无光标）
+                  -->
+                  <div v-if="m.role === 'ai'" class="bubble" :class="m.role"
+                    v-html="m.html ? (m.html + (m.streaming ? streamCaretHtml() : ''))
+                                     : waitingHtml(m.streaming ? 'generate' : 'search')"></div>
+                  <div v-else class="bubble" :class="m.role" v-html="escapeHtml(m.text)"></div>
                   <div v-if="m.role === 'user'" class="avatar me">你</div>
                 </div>
                 <div class="bubbles-end"></div>
@@ -184,20 +195,20 @@
               <WorkspaceBadge :meta="currentMeta" />
               <span class="chat-title">智能问答 · {{ currentMeta.name }}</span>
             </div>
-            <div v-show="showProgress || loading" class="progress">
-              <div class="pbar"><span class="pfill" :style="{ width: ((stepIdx+1)/steps.length*100) + '%' }"></span></div>
-              <div class="steps">
-                <div v-for="(s, i) in steps" :key="i" class="step" :class="{ on: i <= stepIdx, cur: i === stepIdx }">
-                  <span class="dot"></span>{{ s }}
-                </div>
-              </div>
+            <div v-show="showProgress || loading">
+              <ProgressSteps :steps="steps" :active="stepIdx" />
             </div>
             <div ref="chatScroll2" class="chat-scroll" @click="onChatClick"
-              @mouseover="onChatOver" @mousemove="onChatMove" @mouseleave="onChatLeave">
+              @mouseover="onChatOver" @mousemove="onChatMove" @mouseleave="onChatLeave"
+              @scroll="onChatScroll">
               <div class="bubbles">
                 <div v-for="(m, i) in messages" :key="i" class="bubble-row" :class="m.role">
                   <div v-if="m.role === 'ai'" class="avatar">AI</div>
-                  <div class="bubble" :class="m.role" v-html="m.role === 'ai' ? (m.html || waitingHtml()) : escapeHtml(m.text)"></div>
+                  <!-- AI 气泡：流式阶段显示动画，完成显示真实内容 -->
+                  <div v-if="m.role === 'ai'" class="bubble" :class="m.role"
+                    v-html="m.html ? (m.html + (m.streaming ? streamCaretHtml() : ''))
+                                     : waitingHtml(m.streaming ? 'generate' : 'search')"></div>
+                  <div v-else class="bubble" :class="m.role" v-html="escapeHtml(m.text)"></div>
                   <div v-if="m.role === 'user'" class="avatar me">你</div>
                 </div>
                 <div class="bubbles-end"></div>
@@ -260,10 +271,7 @@
               <div class="hint">提示：点击子图中其他节点或关系查看详情</div>
 
               <div v-if="sel.descr" class="descr">
-                <div class="section-head" @click="descrOpen = !descrOpen">
-                  <span class="sh-title">描述</span>
-                  <span class="sh-tog">{{ descrOpen ? '收起 ▲' : '展开 ▼' }}</span>
-                </div>
+                <SectionHead title="描述" :open="descrOpen" @toggle="descrOpen = !descrOpen" />
                 <div v-show="descrOpen" class="descr-body">{{ sel.descr }}</div>
               </div>
 
@@ -325,7 +333,7 @@ import { WS_META, wsMeta, api } from '../composables/useNeo4j.js';
 import {
   queryData, streamRag, fetchChunk, splitSep, openOriginal
 } from '../composables/useLightragApi.js';
-import { mdToHtml, waitingHtml } from '../utils/markdown.js';
+import { mdToHtml, waitingHtml, streamCaretHtml } from '../utils/markdown.js';
 
 // 引入子组件
 import WorkspaceBadge from '../components/WorkspaceBadge.vue';
@@ -334,6 +342,8 @@ import TypeLegend from '../components/TypeLegend.vue';
 import ChunkPanel from '../components/ChunkPanel.vue';
 import CiteHoverBubble from '../components/CiteHoverBubble.vue';
 import AttrTable from '../components/AttrTable.vue';
+import SectionHead from '../components/SectionHead.vue';
+import ProgressSteps from '../components/ProgressSteps.vue';
 
 const vis = { DataSet, Network };
 
@@ -643,15 +653,19 @@ function saveCurrentConv() {
     localStorage.setItem(convKey(currentConvId.value), JSON.stringify(payload));
   } catch (e) { /* quota exceeded 等忽略 */ }
   const lastUser = (msgs.find(m => m.role === 'user') || {}).text || '';
+  const ix = (conversations.value || []).findIndex(c => c.id === currentConvId.value);
+  // 关键：title 不再无脑覆盖为自动生成。
+  //   - 如果会话已存在且标题非空（被用户改过或已有），保留旧标题。
+  //   - 首次保存（无记录）或标题为空，才用 autoTitle(msgs) 自动生成。
+  const existingTitle = (ix >= 0 ? conversations.value[ix].title : '') || '';
   const meta = {
     id: currentConvId.value,
-    title: autoTitle(msgs),
+    title: existingTitle.trim() ? existingTitle : autoTitle(msgs),
     createdAt: now,
     updatedAt: now,
     msgCount: msgs.length,
     lastUserText: lastUser
   };
-  const ix = (conversations.value || []).findIndex(c => c.id === currentConvId.value);
   if (ix >= 0) {
     meta.createdAt = conversations.value[ix].createdAt || now;
     conversations.value.splice(ix, 1);
@@ -698,7 +712,7 @@ function restoreCurrent() {
     edgesDS = null;
     nextTick(() => buildGraph());
   }
-  nextTick(() => scrollChatToBottom());
+  nextTick(() => scrollChatToBottom(true));
 }
 
 // 新建对话（skipArchive=true 时不归档老的）
@@ -771,7 +785,7 @@ function loadConv(id) {
     nextTick(() => buildGraph());
   }
   cancelRename();
-  nextTick(() => scrollChatToBottom());
+  nextTick(() => scrollChatToBottom(true));
 }
 
 // 删除一条历史对话（带二次确认）
@@ -793,8 +807,13 @@ function startRename(id) {
   renamingId.value = id;
   renamingTitle.value = meta.title || '';
   nextTick(() => {
-    const el = renameRefs.get(id);
-    if (el && el.focus) { el.focus(); el.select && el.select(); }
+    // renameRefs 存的是 el-input 组件实例，需要从它拿内部原生 input 才能 focus/select
+    const comp = renameRefs.get(id);
+    const inp = comp && comp.$refs ? comp.$refs.input : null;
+    if (inp && inp.focus) {
+      inp.focus();
+      if (inp.select) inp.select();
+    }
   });
 }
 function commitRename() {
@@ -944,7 +963,12 @@ async function runQuery(preset) {
   query.value = '';
 
   // AI 占位消息（reactive 让流式回调里 push progress 也能触发 UI 更新）
-  const aiMsg = reactive({ role: 'ai', text: '', html: '', ts: Date.now(), refs: [] });
+  // streaming=true：让模板渲染时显示三圆点动画 + 末尾闪烁光标；
+  //   流结束时设回 false，模板就会去掉 caret，只显示真正的 markdown。
+  const aiMsg = reactive({
+    role: 'ai', text: '', html: '',
+    streaming: true, ts: Date.now(), refs: []
+  });
   messages.value.push(aiMsg);
   nextTick(() => saveChat());
 
@@ -961,8 +985,11 @@ async function runQuery(preset) {
     const ans = await streamRag(ws.value, q, opt, (delta, full) => {
       aiMsg.text = full;
       aiMsg.html = mdToHtml(full);
+      // html 已非空 → 模板自动从 waitingHtml 切到真实 markdown + 闪烁 caret
       nextTick(() => scrollChatToBottom());
     });
+    // 流结束：去掉闪烁光标，显示最终内容
+    aiMsg.streaming = false;
 
     stepIdx.value = 2;
     const data = await dataP;
@@ -989,6 +1016,7 @@ async function runQuery(preset) {
     console.error(err);
     aiMsg.text += '\n\n（查询失败：' + (err.message || err) + '）';
     aiMsg.html = mdToHtml(aiMsg.text);
+    aiMsg.streaming = false;
     status.ok = false;
     status.text = '查询失败: ' + (err.message || err);
     saveChat();
@@ -997,10 +1025,28 @@ async function runQuery(preset) {
   }
 }
 
-// 聊天容器滚到底
-function scrollChatToBottom() {
+// 聊天容器滚到底（仅在用户处于"底部附近"时）
+// 行业实践（ChatGPT / Claude）：
+//   - 用户当前在底部（或离底部 < 80px）→ 自动滚到底（用户想看新消息）
+//   - 用户向上滚动看历史 → 不要拉回（让用户继续看历史）
+//   - 用 chatScroll.dataset.stickToBottom 跟踪用户是否在底部
+//     默认 '1'（粘底）；用户滚上去 → '0'；滚回到底 → '1'
+// force=true：强制滚到底并重置粘底标记（用于切换/加载会话时，
+//   避免沿用上一个会话"用户滚上去了"的旧状态，导致新会话开头不对齐底部）。
+function scrollChatToBottom(force) {
   const el = chatScroll2.value || chatScroll.value;
-  if (el) el.scrollTop = el.scrollHeight;
+  if (!el) return;
+  if (force) el.dataset.stickToBottom = '1';
+  // 检查"是否粘底"标记：用户主动向上滚后我们设过 '0'，要尊重用户
+  if (el.dataset.stickToBottom === '0') return;
+  el.scrollTop = el.scrollHeight;
+}
+// 监听用户手动滚动：向上滚动时停止"粘底"，用户滚回底部后恢复
+function onChatScroll(ev) {
+  const el = ev.target;
+  if (!el) return;
+  const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  el.dataset.stickToBottom = nearBottom ? '1' : '0';
 }
 // 点击聊天内容：识别引用的 [n] 并打开
 function onChatClick(ev) {
@@ -1166,7 +1212,7 @@ function buildGraph() {
     });
   });
 
-  // 真正画图：vis.DataSet
+  // 真正画图：vis.DataSet（每次重建，让物理引擎做一次完整 stabilization 布局）
   nodesDS = new vis.DataSet(sizedNodes);
   edgesDS = new vis.DataSet(visEdges);
 
@@ -1202,14 +1248,14 @@ function buildGraph() {
     interaction: { hover: true, tooltipDelay: 150, navigationButtons: true, keyboard: false,
       dragNodes: false, dragView: true, zoomView: true }
   };
+  // 每次都销毁旧 Network 重建，确保 stabilization 正常运行（避免白屏）
+  if (net) { try { net.destroy(); } catch (e) {} net = null; }
   if (!net) {
     net = new vis.Network(container, { nodes: nodesDS, edges: edgesDS }, options);
     net.on('click', p => onGraphPick(p));
     net.on('doubleClick', p => {
       if (p.nodes.length) net.focus(p.nodes[0], { scale: 1.1 });
     });
-  } else {
-    net.setData({ nodes: nodesDS, edges: edgesDS });
   }
 
   // 把每个节点的 group 颜色写到 DataSet，保证填充色稳定
@@ -1280,7 +1326,7 @@ function applyTypeFilter() {
 }
 function fitView() { if (net) net.fit({ animation: { duration: 400 } }); }
 
-// 子图点击：节点 → 显示详情 + 查 Neo4j 拉属性；边 → 显示关系详情；空白 → 收起
+// 子图点击：节点 → 显示详情 + 查 Neo4j 拉属性 + 以该实体为中心辐射展开；边 → 显示关系详情；空白 → 收起
 function onGraphPick(params) {
   if (net && (params.nodes.length || params.edges.length)) {
     net.setOptions({ physics: { enabled: false } });
@@ -2248,15 +2294,17 @@ watch(ws, (v, ov) => {
 .hd-panel .hd-item.active .hd-item-actions {
   opacity: 1;
 }
+/* el-button link 在卡片里的视觉调整：与手搓 button 一致（圆角、hover 加浅色底） */
 .hd-panel .hd-act-btn {
-  padding: 3px 6px;
-  height: auto;
+  padding: 3px 6px !important;
+  height: auto !important;
+  min-height: 0 !important;
   font-size: 13px;
   border: 1px solid rgba(255, 255, 255, .2);
   border-radius: 6px;
   background: rgba(255, 255, 255, .08);
   color: #dbe4f5;
-  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 .hd-panel .hd-act-btn:hover {
   color: #ffffff;

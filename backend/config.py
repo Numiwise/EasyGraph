@@ -51,9 +51,10 @@ QDRANT_CHUNK_COLLECTION = "lightrag_vdb_chunks_baai_bge_m3_1024d"
 #   这样即使 webviz:5006 暴露到公网，恶意用户也无法直接 curl 9630 端口
 #   绕过 token 抓走所有图谱数据。
 #
-# 安全要求：
-#   - 必须由环境变量提供（不留默认值，否则等于"无密码"）。
-#   - docker compose webviz / api-bridge 两边都注入同一份 BRIDGE_TOKEN。
-#   - nginx 反代时把 token 写到 X-Bridge-Token 头传给后端。
+# 默认值：
+#   - 默认 dev-bridge-token（与 .env.example / docker-compose 默认值一致），
+#     让首次开箱即用——无需任何 .env 配置即可启动整套系统。
+#   - 外/公网环境**强烈建议**改为强随机串（openssl rand -hex 32），
+#     并保持 docker-compose webviz / api-bridge 两边同步。
 # ============================================================
-BRIDGE_TOKEN = os.environ.get("BRIDGE_TOKEN", "")
+BRIDGE_TOKEN = os.environ.get("BRIDGE_TOKEN", "dev-bridge-token")

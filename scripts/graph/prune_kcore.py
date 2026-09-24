@@ -17,14 +17,25 @@ prune_kcore.py —— k-core 修剪 + 只保留最大连通分量
   python prune_kcore.py --k 3          # 3-core（更严格，剩 deg>=3）
   python prune_kcore.py g01_people_literature   # 仅处理特定子图
 
-安全说明：AUTH 是本机开发库固定凭据；若推到公网请改读环境变量。
+安全说明：
+    AUTH 不再写死在代码里，而是从环境变量 NEO4J_PASSWORD 读取。
+    默认值在 .env.example 提供（开发用，与 docker-compose 默认一致）。
+    真正运行前请确保本目录或父目录存在 .env 文件，或直接 export NEO4J_PASSWORD。
 """
+import os
 import sys, argparse
 from collections import Counter, deque, defaultdict
 from neo4j import GraphDatabase
 
-URI = "bolt://localhost:7688"   # 展示版 neo4j-display
-AUTH = ("neo4j", "LightRAG2026neo4j")
+# ===== 配置（凭证从环境变量读）=====
+URI = os.environ.get("NEO4J_URI_PRUNE", "bolt://localhost:7688")
+AUTH_USER = os.environ.get("NEO4J_USERNAME", "neo4j")
+AUTH_PASSWORD = os.environ.get("NEO4J_PASSWORD", "")
+AUTH = (AUTH_USER, AUTH_PASSWORD)
+if not AUTH_PASSWORD:
+    print("⚠️  NEO4J_PASSWORD 环境变量未设置，无法连接 Neo4j。")
+    print("   请在 .env 中设置后重试；详见 .env.example。")
+    sys.exit(1)
 LABELS = ["g00_master_all", "g01_people_literature", "g02_places_routes", "g03_varieties",
           "g04_history_institutions", "g05_lingnan_liwan", "g06_industry_tech"]
 # 小于这个规模的连通分量整体删掉（视为游离小组）

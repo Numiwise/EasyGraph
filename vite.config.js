@@ -56,10 +56,12 @@ export default defineConfig({
     chunkSizeWarningLimit: 1500,
     rollupOptions: {
       output: {
+        // 关键：vis-network 只能"named import"，rollup 容易把它识别成"无直接引用"
+        // 单独拆 chunk 会得到空文件（vendor-vis 0 字节），导致 polishState 等内部函数找不到。
+        // 这里把 vis-network 与 vue 合并，避免被独立成空 bundle。
         manualChunks: {
-          'vendor-vue': ['vue', 'vue-router'],
-          'vendor-ep': ['element-plus', '@element-plus/icons-vue'],
-          'vendor-vis': ['vis-network', 'vis-data']
+          'vendor-vue': ['vue', 'vue-router', 'vis-network', 'vis-data'],
+          'vendor-ep': ['element-plus', '@element-plus/icons-vue']
           // neo4j-driver 已从浏览器端移除（图谱数据改由后端 api-bridge 查询）
         }
       }

@@ -150,16 +150,35 @@ def search_graph(ws: str, kw: str = "", hops: int = 1, cap: int = 300,
     type_fs = _parse_types(types)
     with get_driver().session() as s:
         # 1) 找中心节点
-        r0 = s.run(
-            f"MATCH (n:`{ws}`) WHERE n.entity_id CONTAINS $kw "
+        #   匹配策略（按优先级）：
+        #   a) 精确匹配：n.entity_id = $kw（用户输入完整名字）
+        #   b) 长度优先子串：CONTAINS 但按实体名长度升序排（"杨贵妃" 优先于 "杨贵妃荔枝园"）
+        #   c) 普通子串：CONTAINS（兜底，匹配任何含 kw 的实体，但只取前 3 个最短的）
+        # 这样搜"杨贵妃"不会拉"贵妃笑""杨贵妃荔枝园"等所有变体。
+        centers = []
+        # a) 精确匹配
+        r_exact = s.run(
+            f"MATCH (n:`{ws}`) WHERE n.entity_id = $kw "
             "RETURN id(n) AS id, n.entity_id AS name, "
             "coalesce(n.entity_type,'其他') AS type, "
             "n.description AS descr, coalesce(n.source_id,'') AS src, "
             "coalesce(n.file_path,'') AS fp, properties(n) AS props "
-            "ORDER BY size(n.entity_id) LIMIT 3",
+            "LIMIT 3",
             kw=kw,
         )
-        centers = [node_record(r) for r in r0]
+        centers = [node_record(r) for r in r_exact]
+        if not centers:
+            # b/c) 子串匹配，按 name 长度升序（最短的=最精确）
+            r0 = s.run(
+                f"MATCH (n:`{ws}`) WHERE n.entity_id CONTAINS $kw "
+                "RETURN id(n) AS id, n.entity_id AS name, "
+                "coalesce(n.entity_type,'其他') AS type, "
+                "n.description AS descr, coalesce(n.source_id,'') AS src, "
+                "coalesce(n.file_path,'') AS fp, properties(n) AS props "
+                "ORDER BY size(n.entity_id) LIMIT 3",
+                kw=kw,
+            )
+            centers = [node_record(r) for r in r0]
         if not centers:
             return {"nodes": [], "edges": [], "centerIds": []}
 
