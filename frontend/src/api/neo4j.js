@@ -4,7 +4,14 @@
  * 说明：前端读取的是「展示版」实例 neo4j-display（已做过
  *   类型白名单删减 + 孤立点/碎片清理 + 2-core 修剪 + 同义合并），
  *   与 LightRAG 写入的完整版实例（7687）相互隔离。
+ *
+ * Vue 3 工程化变更（原 UMD `neo4j` 全局 → ESM 命名导入）：
+ *   - import neo4j from 'neo4j-driver'   ← 默认导出 Driver 工厂
+ *   - neo4j.driver / neo4j.auth.basic / neo4j.int   全部以命名属性访问
+ *   - 与原 global `neo4j` 对象用法一致
  * ============================================================ */
+import neo4j from 'neo4j-driver';
+
 const NEO4J_URI = 'bolt://localhost:7688';
 const NEO4J_AUTH = { user: 'neo4j', password: 'LightRAG2026neo4j' };
 

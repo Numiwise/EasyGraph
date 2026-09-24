@@ -1,17 +1,19 @@
 /* ============================================================
- * 路由：hash 模式（nginx 零配置，链接可直接分享）
- *   /                    → 导航首页（子图跳转工具）
- *   /graph/:workspace    → 图谱可视化页（g00 总图 / g01~g06 分图）
+ * Vue Router 4 配置（hash 模式，与旧版保持一致）
+ *   /                   → HomeView
+ *   /graph/:ws          → GraphView
+ *   /query              → QueryView
+ *   /doc                → DocView
  * 兼容旧链接：?ws=gxx_... 自动重定向到 /graph/gxx_...
  * ============================================================ */
+import { createRouter, createWebHashHistory } from 'vue-router';
+
 import HomeView from './views/HomeView.js';
 import GraphView from './views/GraphView.js';
 import QueryView from './views/QueryView.js';
 import DocView from './views/DocView.js';
 
-const { createRouter, createWebHashHistory } = VueRouter;
-
-export const router = createRouter({
+const router = createRouter({
   history: createWebHashHistory(),
   routes: [
     { path: '/', name: 'home', component: HomeView },
@@ -21,9 +23,10 @@ export const router = createRouter({
   ]
 });
 
-// 旧版 ?ws= 直达链接 → 新路由
 router.beforeEach((to) => {
   if (to.path === '/' && to.query.ws) {
     return { path: '/graph/' + to.query.ws };
   }
 });
+
+export default router;

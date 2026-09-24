@@ -54,8 +54,14 @@
  *     - 切换工作区会销毁旧 vis 再重建，避免布局聚成「一圈」
  *
  * ============================================================ */
+import { defineComponent } from 'vue';
+import { DataSet, Network } from 'vis-network/standalone/esm/vis-network';
 import { WS_META, getDriver, wsMeta } from '../api/neo4j.js';
 import { fetchChunk, splitSep, openOriginal } from '../api/lightrag.js';
+
+// 把 vis-network 暴露成单一命名空间 `vis`，与原 UMD 全局 `vis` 用法保持一致
+// （代码里用 `new vis.DataSet(...)` / `new vis.Network(...)`，改造成本最低）
+const vis = { DataSet, Network };
 
 const PALETTE = ['#4fa3ff', '#3ecf6a', '#ffd257', '#ff7eb6', '#b28dff', '#ff9f43',
   '#4dd0c4', '#f0616f', '#9ccc65', '#64b5f6', '#ffb74d', '#ba68c8',
@@ -82,7 +88,7 @@ function colorFor(t) {
   return _colorAssign.get(key);
 }
 
-export default {
+export default defineComponent({
   name: 'GraphView',
   props: { ws0: { type: String, default: '' } },
 
@@ -1111,4 +1117,4 @@ export default {
       </div>
     </div>
   </div>`
-};
+});

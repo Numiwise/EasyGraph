@@ -1,10 +1,14 @@
 /* ============================================================
  * 导航首页：七个图谱的跳转工具（路由 → /graph/:ws）
  * 点击卡片 = 在新浏览器页签打开对应子图
+ *
+ * Vue 3 兼容：仅添加 `import { defineComponent } from 'vue'`，原
+ *   Options API 对象写法在 Vue 3 中依然完全支持。
  * ============================================================ */
+import { defineComponent } from 'vue';
 import { WS_META, listWorkspaceCounts, getDriver } from '../api/neo4j.js';
 
-export default {
+export default defineComponent({
   name: 'HomeView',
   data() {
     return {
@@ -147,4 +151,4 @@ export default {
       </div>
     </div>
   </div>`
-};
+});

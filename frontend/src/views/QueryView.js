@@ -40,10 +40,15 @@
  *     - 未提问：彩色背景 + 居中对话框 + 推荐问题
  *     - 提问后：左对话框 + 右子图
  * ============================================================ */
+import { defineComponent } from 'vue';
+import { DataSet, Network } from 'vis-network/standalone/esm/vis-network';
 import { WS_META, wsMeta, getDriver } from '../api/neo4j.js';
 import {
   queryData, streamRag, fetchChunk, splitSep, openOriginal
 } from '../api/lightrag.js';
+
+// 把 vis-network 暴露成单一命名空间 `vis`，与原 UMD 全局 `vis` 用法保持一致
+const vis = { DataSet, Network };
 
 const PALETTE = ['#4fa3ff', '#3ecf6a', '#ffd257', '#ff7eb6', '#b28dff', '#ff9f43',
   '#4dd0c4', '#f0616f', '#9ccc65', '#64b5f6', '#ffb74d', '#ba68c8',
@@ -124,7 +129,7 @@ function mdToHtml(s) {
   return s;
 }
 
-export default {
+export default defineComponent({
   name: 'QueryView',
   data() {
     return {
@@ -1517,4 +1522,4 @@ export default {
       <div class="ch-hint">点击引用数字可打开原网页</div>
     </div>
   </div>`
-};
+});

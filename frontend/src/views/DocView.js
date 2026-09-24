@@ -4,11 +4,12 @@
  * markdown 原文（text/plain），渲染为带样式的页面。
  * 由图谱侧栏 / 查询溯源面板的「查看完整原文」按钮跳转而来。
  * ============================================================ */
+import { defineComponent } from 'vue';
 import { wsMeta } from '../api/neo4j.js';
 import { kbUrl } from '../api/lightrag.js';
 import { renderMarkdown } from '../utils/markdown.js';
 
-export default {
+export default defineComponent({
   name: 'DocView',
   data() {
     return {
@@ -74,4 +75,4 @@ export default {
     </div>
     <div id="docloading" v-show="loading">正在读取原文...</div>
   </div>`
-};
+});
