@@ -52,7 +52,7 @@
         </div>
       </div>
       <div class="sub-title">专题子图<span>按主题分维度浏览</span></div>
-      <div class="sub-grid" :style="{ '--cols': subCols }">
+      <div class="sub-grid" :class="['c' + subCols]">
         <div v-for="m in subs" :key="m.id" class="card"
           :style="{ '--accent': m.color }" @click="enter(m.id)">
           <span class="bar" :style="{background: m.color}"></span>
@@ -364,9 +364,13 @@ onMounted(async () => {
 .sub-grid {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr));
   margin: 0;
 }
+/* 列数动态切换：通过子选择器控制列数，避免 grid 模板字符串中嵌套变量的写法 */
+.sub-grid.c1 { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+.sub-grid.c2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.sub-grid.c3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.sub-grid.c4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 @media (max-width: 720px) {
   .home-head {
     grid-template-columns: 1fr;
@@ -397,12 +401,13 @@ onMounted(async () => {
   inset: 0;
   border-radius: 12px;
   pointer-events: none;
-  background: radial-gradient(300px 130px at var(--cx, 50%) -22%, var(--accent, #4fa3ff) 0%, rgba(0, 0, 0, 0) 70%);
+  /* radial-gradient 的位置参数不支持 var()，写成固定 50% —22%（与 fallback 一致） */
+  background: radial-gradient(300px 130px at 50% -22%, var(--accent, #4fa3ff) 0%, rgba(0, 0, 0, 0) 70%);
   opacity: 0.20;
   transition: opacity 0.2s;
 }
 .card:hover {
-  border-color: var(--accent, var(--primary));
+  border-color: var(--accent, #1f6feb);
   transform: translateY(-3px);
   box-shadow: 0 14px 30px rgba(28, 39, 66, .40);
 }
@@ -456,7 +461,7 @@ onMounted(async () => {
   opacity: 0.95;
   margin-bottom: 8px;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -534,7 +539,7 @@ onMounted(async () => {
   line-height: 1.55;
   min-height: 0;
   margin-bottom: 4px;
-  -webkit-line-clamp: 1;
+  line-clamp: 1;
 }
 .card.featured .foot {
   margin-top: 2px;

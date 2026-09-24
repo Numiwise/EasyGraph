@@ -19,7 +19,7 @@
       <el-button size="small" @click="goHome">‹ 导航</el-button>
       <el-button size="small" type="primary" @click="goQuery">智能问答</el-button>
       <label class="lbl">图谱</label>
-      <WorkspaceSelect v-model="ws" width="170px" filter @update:model-value="onWsChange" />
+      <WorkspaceSelect v-model="ws" width="170px" filterable @change="onWsChange" />
       <label class="lbl">上限</label>
       <el-select v-model="limitNum" @change="reload" style="width:88px">
         <el-option v-for="l in limitOptions" :key="l" :value="l" :label="String(l)"></el-option>
@@ -100,8 +100,9 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import neo4j from 'neo4j-driver';
 import { DataSet, Network } from 'vis-network/standalone/esm/vis-network';
-import { getDriver, wsMeta } from '../composables/useNeo4j.js';
+import { WS_META, getDriver, wsMeta } from '../composables/useNeo4j.js';
 import { fetchChunk, splitSep, openOriginal } from '../composables/useLightragApi.js';
 import WorkspaceBadge from '../components/WorkspaceBadge.vue';
 import WorkspaceSelect from '../components/WorkspaceSelect.vue';

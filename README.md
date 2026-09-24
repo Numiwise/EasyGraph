@@ -51,7 +51,6 @@ docker compose ps
 | **Neo4j Browser**（管理图） | http://localhost:7474 （用户 `neo4j`，密码见 `.env`） |
 | **Qdrant Dashboard** | http://localhost:6333/dashboard |
 | **pgAdmin**（PG 可视化） | http://localhost:5050 |
-| **NeoDash**（Neo4j 仪表板） | http://localhost:5005 |
 
 打开 `http://localhost:5006`：
 
@@ -88,8 +87,8 @@ python -m pytest tests/ -v
         ┌───────────────────┼───────────────────┐
         ▼                                       ▼
 ┌──────────────────┐                   ┌─────────────────────────┐
-│ webviz (nginx)    │                   │ Neo4j Browser / NeoDash │
-│ 静态前端 SPA      │                   │ http://7474 / 5005      │
+│ webviz (nginx)    │                   │ Neo4j Browser          │
+│ 静态前端 SPA      │                   │ http://7474            │
 │ + /kb/ 原文目录   │                   └─────────────────────────┘
 └──────────────────┘
         │                       │
@@ -118,7 +117,7 @@ python -m pytest tests/ -v
 ```
 lightrag-deploy/
 ├── README.md                 ← 你正在看
-├── docker-compose.yml        ← Docker 编排（neo4j / qdrant / pg / 7×LightRAG / webviz / pgAdmin / NeoDash）
+├── docker-compose.yml        ← Docker 编排（neo4j / qdrant / pg / 7×LightRAG / webviz / pgAdmin）
 ├── .env.example              ← 配置模板（不含真实密钥）
 ├── .gitignore
 ├── requirements.txt          ← 本地脚本与测试依赖
@@ -210,9 +209,9 @@ lightrag-deploy/
 | 图存储 | Neo4j 5.26 |
 | 向量库 | Qdrant latest |
 | KV / 文档状态 | PostgreSQL 16 + pgvector |
-| 前端 | Vue 3 + Element Plus + vis-network + neo4j-web（无构建工具） |
+| 前端 | Vue 3 + Element Plus + vis-network + neo4j-driver（Vite 构建） |
 | 反向代理 | nginx:alpine |
-| 可视化扩展 | NeoDash（仪表板）+ pgAdmin（PG） |
+| 数据库可视化 | pgAdmin（PG） |
 
 ---
 
