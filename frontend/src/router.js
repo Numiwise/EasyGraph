@@ -10,7 +10,7 @@ import { createRouter, createWebHashHistory } from 'vue-router';
 
 import HomeView from './views/HomeView.vue';
 import GraphView from './views/GraphView.vue';
-import QueryView from './views/QueryView.js';
+import QueryView from './views/QueryView.vue';
 import DocView from './views/DocView.vue';
 
 const router = createRouter({
