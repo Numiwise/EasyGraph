@@ -29,7 +29,7 @@
 -->
 <template>
   <!-- v-if="visible"：父组件控制可见性 -->
-  <div v-if="visible" ref="rootEl" class="cite-hover"
+  <div v-if="visible" class="cite-hover"
     :style="{ left: x + 'px', top: y + 'px' }"
     @mouseenter="onEnter" @mousemove="onMove" @mouseleave="onLeave">
     <!-- 三段布局：标题(顶部) + 正文(中段,可滚动) + 操作提示(底部) -->
@@ -49,9 +49,8 @@
  *   - 鼠标离开气泡   → onLeave：通常立即 hide
  * ============================================================
  * 这里把交互封装在组件内部，父组件只需传 visible/x/y/title/content
- * 并通过 ref 拿到 scheduleHide / cancelHide 两个方法。
+ * 并通过事件回调拿到 enter / move / leave 通知。
  */
-import { ref } from 'vue';
 
 /* defineProps：声明对外 props
  *   visible —— 是否显示
@@ -77,38 +76,12 @@ const emit = defineEmits(['enter', 'move', 'leave']);
 /* ============================================================
  * 内部状态
  * ============================================================ */
-// 根节点的 DOM 引用。模板里 ref="rootEl" 关联到此变量。
-// 现在没主动用到，但保留以便将来（例如聚焦、自适应宽度）。
-const rootEl = ref(null);
-
-// 闭包变量保存 setTimeout 的 id，避免"清除错定时器"
-let _timer = null;
-
-/* scheduleHide(delay = 450)：延迟隐藏。
- *   - 父组件调用时让用户"从引用号滑到气泡"不至于立刻消失。
- *   - 默认 450ms 是个经验值——太短用户来不及滑动，太长会显得迟钝。
- */
-function scheduleHide(delay = 450) {
-  if (_timer) clearTimeout(_timer);  // 多次连点时取消上一次的 timer
-  _timer = setTimeout(() => {
-    emit('leave');                    // 通知父组件：可以隐藏了
-    _timer = null;
-  }, delay);
-}
 
 /* cancelHide()：取消已排好的延迟隐藏。
  * 鼠标进入气泡或移动时调用 —— 用户已经"明确进入"气泡，不能再消失。
+ * （延迟隐藏逻辑由父组件 QueryView 的 scheduleHoverHide 管理）
  */
-function cancelHide() {
-  if (_timer) { clearTimeout(_timer); _timer = null; }
-}
-
-/* defineExpose：
- * 默认 <script setup> 里声明的变量对父组件 ref 是不可见的，
- * 用 defineExpose 显式把 scheduleHide / cancelHide 暴露出去，
- * 父组件通过 const bubbleRef = ref() + bubbleRef.value.scheduleHide() 调用。
- */
-defineExpose({ scheduleHide, cancelHide });
+function cancelHide() {}
 
 /* ============================================================
  *  三个鼠标事件处理

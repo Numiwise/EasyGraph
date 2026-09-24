@@ -124,8 +124,8 @@ import { useRoute, useRouter } from 'vue-router';
 // vis-network 的独立构建：DataSet（高效数据集合）+ Network（canvas 渲染）
 import { DataSet, Network } from 'vis-network/standalone/esm/vis-network';
 
-// 从 composables/useNeo4j.js 引入 WS_META / wsMeta / api（统一数据库访问，后端代理）
-import { WS_META, wsMeta, api } from '../composables/useNeo4j.js';
+// 从 composables/useNeo4j.js 引入 wsMeta / api（统一数据库访问，后端代理）
+import { wsMeta, api } from '../composables/useNeo4j.js';
 // 从 composables/useLightragApi.js 引入 fetchChunk / splitSep / openOriginal
 import { fetchChunk, splitSep, openOriginal } from '../composables/useLightragApi.js';
 
@@ -192,8 +192,6 @@ const router = useRouter();
  * ============================================================ */
 // 当前 workspace id（默认总图谱）
 const ws = ref(props.ws0 || 'g00_master_all');
-// workspace 列表下拉选项
-const wsOptions = WS_META.map(m => ({ v: m.id, t: m.name }));
 // 全图模式的"节点上限"（固定值，搜索功能已移除）
 const LIMIT = 300;
 // 跳数（点击展开都用这个）
@@ -245,8 +243,6 @@ function _distanceAdj(start, target) {
   }
   return 99;  // 不可达
 }
-let _allNodeIds = [];
-let _allEdgeIds = [];
 
 // vis-network 实例 / DataSet（受 Vue 状态管理会出错时用 ref 让其兼容）
 let net = null;
@@ -284,10 +280,6 @@ const loadTitle = computed(() => (loading.value && !stabilizing.value) ? '图谱
 const loadSub = computed(() => stabilizing.value
   ? '已取回节点与关系，正在稳定布局（动画定位），请稍候'
   : '正在准备图谱内容，耐心等一下');
-
-// 图例两个批量按钮的勾选态（虽然按钮本身由 TypeLegend 控制，但这里备份）
-const allSelected = computed(() => typeList.value.length > 0 && selectedTypes.value.length === typeList.value.length);
-const noneSelected = computed(() => selectedTypes.value.length === 0);
 
 /* ============================================================
  * 工具方法
@@ -331,6 +323,7 @@ async function openOriginalFile(fp) {
   const ok = await openOriginal(fp, ws.value);
   if (!ok) openDoc(fp);   // 浏览器打不开（docx 等）→ 在 DocView 中预览
 }
+// 在新标签页打开 DocView 预览（浏览器原生打不开的 docx 等格式走这条路径）
 function openDoc(fp) {
   if (!fp) return;
   // 新标签页打开 /doc?ws=...&file=... 路由（DocView 负责把 md 渲染出 HTML）
@@ -445,14 +438,17 @@ function toggleType(t) {
   else selectedTypes.value.push(t);                 // 未选 → 选中
   applyTypeFilter();
 }
+// 全选所有实体类型（图例"全选"按钮）
 function selectAllTypes() {
   selectedTypes.value = typeList.value.slice();
   applyTypeFilter();
 }
+// 取消所有实体类型（图例"全不选"按钮）
 function selectNoneTypes() {
   selectedTypes.value = [];
   applyTypeFilter();
 }
+// 类型筛选变化 → 刷新节点/边可见性
 function applyTypeFilter() { refreshVisibility(); }
 
 // 统一可见性计算：实体类型筛选 AND 跳数隐藏（两者叠加生效）
@@ -496,7 +492,7 @@ function refreshVisibility() {
   });
   if (edgeUpd.length) edgesDS.update(edgeUpd);
 }
-
+// 跳数筛选变化 → 刷新可见性（委托给 refreshVisibility 统一处理）
 function applyHopsFilter() { refreshVisibility(); }
 
 /* ============================================================
@@ -586,34 +582,6 @@ async function loadGraph() {
   } finally { loading.value = false; }
 }
 
-// 以被点击节点为中心做 k 跳展开（邻居同样吃类型筛选）
-// 数据改由后端 api-bridge 从 Neo4j 查询，前端不再直连数据库。
-// api.expand(workspace, nodeId, { hops: 跳数, types: 类型筛选 })
-async function expandFromNode(nodeId, hopsVal) {
-  loading.value = true;
-  const t0 = performance.now();
-  try {
-    const result = await api.expand(ws.value, nodeId, {
-      hops: hopsVal, types: typeFs.value
-    });
-    centerId.value = nodeId;  // 记住中心，类型筛选变化时可复现
-    // 节点展开后切到 sub 模式（用 _adj 做 BFS 隐藏远处节点）
-    hopsMode.value = 'sub';
-    renderGraph(result.nodes, result.edges, [nodeId]);
-    showNodeSide(nodeId, true);
-    if (net) net.focus(nodeId, { scale: 0.8, animation: { duration: 400 } });
-    const ms = Math.round(performance.now() - t0);
-    const pre = typeFs.value.length ? ('已筛类型 ' + typeFs.value.length + ' 种 · ') : '';
-    const centerNode = result.nodes.find(n => n.id === nodeId);
-    const centerName = centerNode ? centerNode.name : '未知';
-    setStatus(true, pre + '以「' + centerName + '」为中心 ' + hopsVal + ' 跳 · 节点 ' +
-      result.nodes.length + ' · 关系 ' + result.edges.length + ' · 加载耗时 ' + ms + 'ms');
-  } catch (err) {
-    console.error(err);
-    setStatus(false, '展开失败: ' + (err.message || err));
-  } finally { loading.value = false; }
-}
-
 /* ============================================================
  * vis-network 渲染
  *   设计目标（与用户体验对应）：
@@ -635,7 +603,7 @@ function renderGraph(nodes, edges, centerIds) {
   // 关键：是否保留图谱物理布局？
   //   - 首次加载（net === null）：options 里 physics.enabled=true，让 vis 跑一次完整 stabilization。
   //   - 后续加载（net 已存在）：强制关物理，防止 stabilization 把已有节点拉散成"大圆盘"。
-  //   - caller（loadGraph/showAll/expandFromNode）不再需要关心开关物理。
+  //   - caller（loadGraph/showAll）不再需要关心开关物理。
   const isFirstLoad = !net;
   if (!isFirstLoad) {
     try { net.setOptions({ physics: { enabled: false } }); } catch (e) {}
@@ -796,10 +764,8 @@ function renderGraph(nodes, edges, centerIds) {
     adj[e.t].add(e.s);
   }
   _adj = adj;
-  _allNodeIds = nodes.map(n => n.id);
-  _allEdgeIds = edges.map((e, i) => i);
   // 注意：hopsMode 不在这里强制重置！
-  //   sub 模式由 expandFromNode/onPick 切到；all 模式由 caller（loadGraph/switchWorkspace）切到。
+  //   sub 模式由 onPick 切到；all 模式由 caller（loadGraph/switchWorkspace）切到。
   //   renderGraph 是纯渲染函数，把这个职责让出去能避免"刚设的 sub 被自己冲掉"。
 
   // vis-network 内置布局完成（stabilizationIterationsDone）后保留极慢的 physics
@@ -954,6 +920,7 @@ function startPulse() {
   };
   _pulseRaf = requestAnimationFrame(loop);
 }
+// 停止脉冲动画：取消 RAF + 还原被加深过的邻边颜色
 function stopPulse() {
   if (_pulseRaf) { cancelAnimationFrame(_pulseRaf); _pulseRaf = null; }
   if (_pulseEdges.length && edgesDS) {

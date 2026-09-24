@@ -87,28 +87,6 @@ export const api = {
   },
 
   /**
-   * search(ws, kw, opt) —— 按名称搜索中心节点 + k 跳展开
-   * @param {string} ws workspace id
-   * @param {string} kw 名称子串
-   * @param {{hops?:number, cap?:number, types?:string[]}} opt
-   */
-  async search(ws, kw, { hops = 1, cap = 300, types = [] } = {}) {
-    const q = buildQs({ ws, kw, hops, cap, types });
-    return (await fetch('/api/search' + q)).json();
-  },
-
-  /**
-   * expand(ws, id, opt) —— 以某节点 ID 为中心 k 跳展开
-   * @param {string} ws workspace id
-   * @param {number} id 节点 id（Neo4j 内部 id）
-   * @param {{hops?:number, types?:string[]}} opt
-   */
-  async expand(ws, id, { hops = 1, types = [] } = {}) {
-    const q = buildQs({ ws, id, hops, types });
-    return (await fetch('/api/expand' + q)).json();
-  },
-
-  /**
    * node(ws, name) —— 单节点属性（右侧详情面板）
    * @param {string} ws workspace id
    * @param {string} name 实体名（entity_id）

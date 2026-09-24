@@ -12,7 +12,6 @@
  *
  *   【问答】
  *     - streamRag(ws, q, opt, onToken)   流式问答（按 token 一段一段回调）
- *     - queryRag(ws, q, opt)            非流式一次性问答
  *     - queryData(ws, q, opt)           仅检索（拿到实体 / 关系 / chunks）
  *
  *   【原文回查】
@@ -25,9 +24,6 @@
  *   【小工具】
  *     - splitSep(s)                      按 LightRAG 约定的 <SEP> 切多来源字符串
  *     - baseKey(filePath)                提取文件名主干（去前缀 + 去扩展名）
- *
- *   【Vue 集成入口】
- *     - useLightragApi()                 在 setup 里直接拿到上面的全部函数
  *
  * ============================================================ */
 
@@ -46,60 +42,6 @@ import { api } from './useNeo4j.js';
  * 这样改动端口只需要改一个地方。*/
 
 
-/* ================================================================
- *  函数：queryRag(ws, query, opts) → {response, references, responseTime}
- * ------------------------------------------------------------
- *  非流式"一次性"问答。适合：脚本/测试场景，或者你不想让前端一边收一边渲染。
- *
- *  参数：
- *    ws     —— workspace 名（决定 baseURL 的端口）
- *    query  —— 用户问题（中文自然语言）
- *    opts   —— 可选项：
- *       mode           检索模式（'mix'/'local'/'global'/'naive'/'hybrid' 之一）
- *       responseType   LLM 输出风格提示词
- *       topK           参与检索的实体数量（默认 10）
- *       chunkTopK      参与检索的文本块数量（默认 5）
- *
- *  业务流程：
- *    1. 拼装 POST 请求体（LightRAG 后端约定的 schema）。
- *    2. fetch 等待完整响应，解析 JSON。
- *    3. 把后端的字段名（response / references / response_time）归一化成驼峰命名。
- *
- *  返回：{ response, references, responseTime }
- * ================================================================ */
-export async function queryRag(ws, query, opts = {}) {
-  // 构造 POST 请求体
-  const body = {
-    query,                                                       // 用户问题
-    mode: opts.mode || 'mix',                                    // 检索模式，默认 mix（混合）
-    include_references: true,                                    // 让后端把引用一并返回
-    // 默认的"输出风格"提示词：要求中文、分小节、保留关键原文与论据
-    response_type: opts.responseType || '请用中文作答，分小节阐述并保留关键原文与论据',
-    // opts.topK 用户可能传 0/null，所以用 != null 而不是 truthy 判断
-    top_k: opts.topK != null ? opts.topK : 10,
-    chunk_top_k: opts.chunkTopK != null ? opts.chunkTopK : 5
-  };
-  // 发起网络请求。
-  //   portOf(ws)：根据 workspace 决定后端服务的端口号（详见 utils/lightrag-config.js）
-  //   url 形如："http://127.0.0.1:9621/query"
-  const res = await fetch('http://127.0.0.1:' + portOf(ws) + '/query', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  // fetch 即使 404 / 500 也不会抛异常，只会标记 res.ok=false，所以我们手动抛错
-  if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + res.statusText);
-  // 把响应体解析成 JSON 对象
-  const d = await res.json();
-  // 把后端的 snake_case 字段重命名成驼峰，更符合前端习惯
-  return {
-    response: d.response || '',
-    references: d.references || [],
-    responseTime: d.response_time
-  };
-}
-
-
 /**
  * 函数：streamRag(ws, query, opts, onToken) → {response, references, responseTime}
  * ------------------------------------------------------------
@@ -115,7 +57,7 @@ export async function queryRag(ws, query, opts = {}) {
  *     {"response":"\n\n...","response_time":2.3}            ← 流末尾，附耗时
  *
  * 参数：
- *   ws/query/opts —— 同 queryRag
+ *   ws/query/opts —— 同 queryData（ws 是 workspace，query 是问题，opts 包含 mode/topK 等）
  *   onToken(delta, full) —— 回调，delta 是本段新增，full 是到目前累计全文
  *
  * 返回：{ response: 全文, references: [], responseTime }
@@ -130,7 +72,7 @@ export async function streamRag(ws, query, opts = {}, onToken) {
   );
   if (responseType.length > 256) throw new Error('response_type 超过 256 字符上限，请精简');
 
-  // 拼装请求体。和 queryRag 几乎一样，多了一个 include_chunk_content: true，
+  // 拼装请求体。和 queryData 几乎一样，多了一个 include_chunk_content: true，
   // 让 chunks 里附带原文（方便前端做"引用段落"展开）。
   const body = {
     query,
@@ -402,34 +344,4 @@ export async function openOriginal(filePath, ws) {
   const url = kbUrl(ws || '', filePath);
   if (url) { window.open(url, '_blank', 'noopener'); return true; }
   return false;
-}
-
-
-/* ================================================================
- *  Vue 3 组合式 API 包装
- * ------------------------------------------------------------
- *  如果 .vue 文件用 <script setup>，可以直接：
- *      import { useLightragApi } from '@/composables/useLightragApi.js';
- *      const api = useLightragApi();
- *      api.streamRag(...);    // 调用流式问答
- *
- *  useLightragApi 内部只是把所有导出函数打包到一起，方便统一注入。
- *  注意它没有 ref/reactive —— 全部都是纯函数，并不维护"实例状态"，
- *  所以叫"composable 函数"，严格说更接近一个汇总的"命名空间"。
- * ================================================================ */
-export function useLightragApi() {
-  return {
-    // 问答
-    queryRag,
-    streamRag,
-    queryData,
-    // 原文回查
-    fetchChunk,
-    kbUrl,
-    openOriginal,
-    loadOriginManifest,
-    isBrowserOpenable,
-    // 小工具
-    splitSep
-  };
 }

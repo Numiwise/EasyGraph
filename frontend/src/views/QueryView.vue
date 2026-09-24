@@ -329,7 +329,7 @@
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { DataSet, Network } from 'vis-network/standalone/esm/vis-network';
-import { WS_META, wsMeta, api } from '../composables/useNeo4j.js';
+import { wsMeta, api } from '../composables/useNeo4j.js';
 import {
   queryData, streamRag, fetchChunk, splitSep, openOriginal
 } from '../composables/useLightragApi.js';
@@ -358,8 +358,6 @@ const router = useRouter();
  * ============================================================ */
 // 当前 workspace（默认总图谱）；从 URL 读 ?ws=
 const ws = ref('g00_master_all');
-// workspace 选项（暂时保留，未在模板中使用，预留给后续多选需求）
-const wsOptions = WS_META.map(m => ({ v: m.id, t: m.name }));
 // 当前查询模式
 const mode = ref('mix');
 // 6 种查询模式 + 各自的简短说明（被 tooltip 使用）
@@ -441,8 +439,6 @@ const messages = ref([]);
 // 本次问答命中的实体 + 关系
 const entities = ref([]);
 const relationships = ref([]);
-// 关键词（high/low 两层）
-const keywords = ref({ high: [], low: [] });
 // 图例相关
 const typeList = ref([]);          // 当前 workspace 涉及的 entity_type 列表
 const typeColors = ref({});        // 类型 → 颜色
@@ -478,10 +474,7 @@ let _hoverTimer = null;
 let _onUnload = null;
 // 重命名 input 的 DOM 引用（Map id→input 节点）
 const renameRefs = new Map();
-// 给模板用的 ref：聊天滚动容器
-function setRenameRef(el, id) {
-  if (el) renameRefs.set(id, el);
-}
+// 聊天滚动容器 ref
 const chatScroll = ref(null);
 const chatScroll2 = ref(null);
 const textareaRef = ref(null);
@@ -491,11 +484,8 @@ const textareaRef2 = ref(null);
  * 计算属性
  * ============================================================ */
 const currentMeta = computed(() => wsMeta(ws.value));
-const selTypes = computed(() => selectedTypes.value);
 // 推荐问题按 workspace 切换
 const presets = computed(() => presetsByWs[ws.value] || presetsByWs.g00_master_all);
-const allSelected = computed(() => typeList.value.length > 0 && selectedTypes.value.length === typeList.value.length);
-const noneSelected = computed(() => selectedTypes.value.length === 0);
 // 按搜索词过滤历史对话
 const filteredConvs = computed(() => {
   const arr = conversations.value || [];
@@ -547,6 +537,7 @@ async function openOriginalFile(fp) {
   const ok = await openOriginal(fp, ws.value);
   if (!ok) openDoc(fp);
 }
+// 在新标签页打开 DocView 预览（浏览器原生打不开的 docx 等格式走这条路径）
 function openDoc(fp) {
   if (!fp) return;
   const url = window.location.origin + window.location.pathname +
@@ -576,10 +567,12 @@ function validateOpt(opt) {
  *   qchat_<ws>_<convId>      ：单个会话内容（payload）
  *   qchat_cur_<ws>           ：当前活跃会话 id
  * ============================================================ */
+// 会话列表的 localStorage key（按 workspace 隔离）
 function listKey() { return 'qchat_idx_' + (ws.value || 'g00_master_all'); }
+// 当前活跃会话 id 的 localStorage key
 function curKey()  { return 'qchat_cur_' + (ws.value || 'g00_master_all'); }
+// 单个会话内容的 localStorage key
 function convKey(id) { return 'qchat_' + (ws.value || 'g00_master_all') + '_' + id; }
-function histKey() { return curKey(); }
 // 生成会话 id：c + 时间戳 base36 + 随机 base36
 function genConvId() {
   return 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -732,7 +725,6 @@ function newChat(skipArchive) {
     props: {}, extraProps: [], srcIds: [], fps: [], segs: [] });
   Object.assign(hover, { visible: false, x: 0, y: 0, title: '', content: '' });
   showProgress.value = false;
-  polishState.value = 'idle';
   stepIdx.value = 0;
   try { localStorage.removeItem(curKey()); } catch (e) {}
   if (net) { try { net.destroy(); } catch (e) {} net = null; }
@@ -769,7 +761,6 @@ function loadConv(id) {
     props: {}, extraProps: [], srcIds: [], fps: [], segs: [] });
   Object.assign(hover, { visible: false, x: 0, y: 0, title: '', content: '' });
   showProgress.value = false;
-  polishState.value = 'idle';
   try { localStorage.setItem(curKey(), id); } catch (e) {}
   const ix = (conversations.value || []).findIndex(c => c.id === id);
   if (ix >= 0) {
@@ -816,6 +807,7 @@ function startRename(id) {
     }
   });
 }
+// 确认重命名：把新标题写入会话 meta 并保存
 function commitRename() {
   if (!renamingId.value) return;
   const meta = (conversations.value || []).find(c => c.id === renamingId.value);
@@ -827,6 +819,7 @@ function commitRename() {
   renamingId.value = null;
   renamingTitle.value = '';
 }
+// 取消重命名：清空重命名状态
 function cancelRename() {
   renamingId.value = null;
   renamingTitle.value = '';
@@ -845,6 +838,7 @@ function toggleHistory() {
     }
   });
 }
+// 关闭历史面板并重绘子图（面板遮挡后 vis-network 需要重新 fit）
 function closeHistory() {
   showHistory.value = false;
   cancelRename();
@@ -877,6 +871,7 @@ function scheduleHoverHide(delay) {
 function cancelHoverHide() {
   if (_hoverTimer) { clearTimeout(_hoverTimer); _hoverTimer = null; }
 }
+// 立即隐藏气泡
 function hideHover() { cancelHoverHide(); hover.visible = false; }
 // 鼠标进入"引用号"时显示气泡
 function onChatOver(ev) {
@@ -908,6 +903,7 @@ function onChatOver(ev) {
     content });
   ev.stopPropagation();
 }
+// 鼠标在对话区移动：在引用号上取消隐藏，离开则延迟隐藏
 function onChatMove(ev) {
   if (!hover.visible) return;
   const t = ev.target;
@@ -916,9 +912,13 @@ function onChatMove(ev) {
   if (inCite || inBubble) { cancelHoverHide(); return; }
   scheduleHoverHide(450);
 }
+// 鼠标离开对话区 → 延迟隐藏气泡
 function onChatLeave() { scheduleHoverHide(450); }
+// 鼠标进入气泡 → 取消隐藏
 function onBubbleEnter() { cancelHoverHide(); }
+// 鼠标在气泡上移动 → 取消隐藏
 function onBubbleMove() { cancelHoverHide(); }
+// 鼠标离开气泡 → 立即隐藏
 function onBubbleLeave() { hideHover(); }
 
 /* ============================================================
@@ -999,11 +999,9 @@ async function runQuery(preset) {
     aiMsg.refs = lastRefs.value;
     aiMsg.html = mdToHtml(aiMsg.text);
 
-    // 把检索到的实体/关系/关键词填到 ref，buildGraph() 会异步渲染右子图
+    // 把检索到的实体/关系填到 ref，buildGraph() 会异步渲染右子图
     entities.value = data.entities || [];
     relationships.value = data.relationships || [];
-    const kw = (data.metadata && data.metadata.keywords) || {};
-    keywords.value = { high: kw.high_level || [], low: kw.low_level || [] };
     buildGraph();
 
     const elapsed = performance.now() - t0;
@@ -1177,9 +1175,11 @@ function buildGraph() {
     '#ca8a04', '#0d9488', '#4f46e5', '#7c3aed'
   ];
   const _qAssign = new Map();
+  // 字符串 hash（与 GraphView 的 hashStr 同逻辑，用于颜色分配）
   function qHash(s) { let h = 0; const k = String(s || '');
     for (let i = 0; i < k.length; i++) h = (h * 31 + k.charCodeAt(i)) | 0;
     return Math.abs(h); }
+  // 按 type 分配颜色（首次计算后缓存，同 GraphView 的 colorFor）
   function qColor(t) {
     const k = String(t || '');
     if (!_qAssign.has(k)) _qAssign.set(k, TECH_PALETTE[qHash(k) % TECH_PALETTE.length]);
@@ -1300,8 +1300,11 @@ function toggleType(t) {
   else selectedTypes.value.push(t);
   applyTypeFilter();
 }
+// 全选所有类型
 function selectAllTypes() { selectedTypes.value = typeList.value.slice(); applyTypeFilter(); }
+// 取消所有类型
 function selectNoneTypes() { selectedTypes.value = []; applyTypeFilter(); }
+// 按已选类型刷新节点/边可见性
 function applyTypeFilter() {
   if (!nodesDS || !edgesDS) return;
   const visSet = new Set(selectedTypes.value);
@@ -1324,9 +1327,10 @@ function applyTypeFilter() {
   });
   if (edgeUpd.length) edgesDS.update(edgeUpd);
 }
+// 适应视图：居中 + 缩放到合适大小
 function fitView() { if (net) net.fit({ animation: { duration: 400 } }); }
 
-// 子图点击：节点 → 显示详情 + 查 Neo4j 拉属性 + 以该实体为中心辐射展开；边 → 显示关系详情；空白 → 收起
+// 子图点击：节点 → 居中 focus + 显示详情 + 异步拉属性；边 → 显示关系详情；空白 → 收起
 function onGraphPick(params) {
   if (net && (params.nodes.length || params.edges.length)) {
     net.setOptions({ physics: { enabled: false } });

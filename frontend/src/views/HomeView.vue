@@ -121,9 +121,6 @@ import { WS_META, api } from '../composables/useNeo4j.js';
 const counts = ref({});
 // 每个 workspace 的关系数（rels）
 const rels = ref({});
-// 备用：本页没用到，但保留位方便调试（Neo4j 是否连得上）
-const connected = ref(false);
-const error = ref('');
 
 // 显示用的"动画滚动"数字：
 //   - 容器始终渲染（数字 0~to），所以不会因为出现/隐藏元素造成页面抖动
@@ -144,8 +141,6 @@ const master = computed(() => WS_META.find(m => m.id === 'g00_master_all'));
 const subs = computed(() => WS_META.filter(m => m.id !== 'g00_master_all'));
 
 // 是否已拿到数据（counts 不是空对象）
-const hasCounts = computed(() => Object.keys(counts.value).length > 0);
-
 // 所有 workspace 的实体总数（reduce 累加）
 const total = computed(() => Object.values(counts.value).reduce((a, b) => a + (b || 0), 0));
 const totalRels = computed(() => Object.values(rels.value).reduce((a, b) => a + (b || 0), 0));
@@ -225,7 +220,6 @@ function animateCount(from, to, setter) {
 onMounted(async () => {
   document.title = '知识图谱问答';
   try {
-    connected.value = true;
     const s = await api.counts();
     // s 可能是 { nodes, rels }，做兼容
     counts.value = s && s.nodes ? s.nodes : s;
@@ -235,7 +229,7 @@ onMounted(async () => {
     animateCount(displayNodes.value, total.value, (val) => { displayNodes.value = val; });
     animateCount(displayRels.value, totalRels.value, (val) => { displayRels.value = val; });
   } catch (err) {
-    error.value = (err.message || String(err));
+    console.error('加载 counts 失败:', err.message || String(err));
   }
 });
 </script>
