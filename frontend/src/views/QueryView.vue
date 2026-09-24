@@ -1,4 +1,4 @@
-<!--
+﻿<!--
   QueryView.vue —— 智能问答页（路由 /query?ws=<workspace>）
 
   Vue 3 重构：SFC + Composition API + scoped style。
@@ -10,7 +10,7 @@
     <!-- 顶部工具栏（始终保留） -->
     <div id="qbar">
       <span class="brand">
-        <span class="bbadge" :style="{background: currentMeta.color}">{{ currentMeta.badge }}</span>
+        <WorkspaceBadge :meta="currentMeta" />
         <span class="title">智能问答</span>
       </span>
       <el-button size="small" @click="goHome">‹ 导航</el-button>
@@ -23,9 +23,7 @@
         {{ showHistory ? '收起' : '历史' }}{{ showHistory ? '' : ' (' + conversations.length + ')' }}
       </el-button>
       <label class="lbl">图谱</label>
-      <el-select :model-value="ws" @change="v => ws = v" style="width:150px">
-        <el-option v-for="o in wsOptions" :key="o.v" :value="o.v" :label="o.t"></el-option>
-      </el-select>
+      <WorkspaceSelect v-model="ws" />
       <label class="lbl">模式</label>
       <el-select v-model="mode" style="width:170px">
         <el-option v-for="m in modes" :key="m.v" :value="m.v" :label="m.t"></el-option>
@@ -47,7 +45,7 @@
         <div class="hd-panel" v-show="showHistory">
           <header class="hd-head">
             <div class="hd-head-l">
-              <span class="bbadge" :style="{background: currentMeta.color}">{{ currentMeta.badge }}</span>
+              <WorkspaceBadge :meta="currentMeta" size="small" />
               <span class="hd-title">历史对话</span>
             </div>
             <div class="hd-head-r">
@@ -96,7 +94,7 @@
         <div id="qcenter" v-if="!started">
           <div class="chat-card">
             <div class="chat-head">
-              <span class="bbadge" :style="{background: currentMeta.color}">{{ currentMeta.badge }}</span>
+              <WorkspaceBadge :meta="currentMeta" />
               <span class="chat-title">智能问答 · {{ currentMeta.name }}</span>
             </div>
             <div class="progress" v-show="showProgress">
@@ -140,7 +138,7 @@
         <div v-else id="qmain">
           <div id="qleft">
             <div class="chat-head sub">
-              <span class="bbadge" :style="{background: currentMeta.color}">{{ currentMeta.badge }}</span>
+              <WorkspaceBadge :meta="currentMeta" />
               <span class="chat-title">智能问答 · {{ currentMeta.name }}</span>
             </div>
             <div v-show="showProgress || loading" class="progress">
@@ -222,61 +220,40 @@
                 </table>
               </div>
 
-              <div v-if="sel.segs && sel.segs.length" class="chunks">
-                <div class="section-head">
-                  <span class="sh-title">原文片段（{{ sel.segs.length }}）</span>
-                </div>
-                <div v-for="(s,i) in sel.segs" :key="'c'+i" class="chunk" :class="{collapsed: !s.expanded}">
-                  <div class="chunk-head" @click="s.expanded = !s.expanded">
-                    <span class="chunk-idx">原文片段 {{ i+1 }}</span>
-                    <span class="chunk-tog">{{ s.expanded ? '收起 ▲' : '展开 ▼' }}</span>
-                  </div>
-                  <div v-show="s.expanded" class="chunk-scroll">
-                    <div v-if="!s.loading && s.para" class="chunk-para">{{ s.para }}</div>
-                    <div v-else-if="s.loading" class="chunk-para dim">原文片段载入中…</div>
-                    <div v-else class="chunk-para dim">（未检索到该原文片段）</div>
-                  </div>
-                  <button class="isrc-open chunk-open" :class="{disabled: !s.file}"
-                    v-show="i < 2 || s.expanded"
-                    :disabled="!s.file" @click.stop="openOriginalFile(s.file)">
-                    {{ s.file ? '查看原文网页' : '暂无原文链接' }}
-                  </button>
-                </div>
-              </div>
-              <div v-else class="chunks">
-                <div class="chunk">
-                  <div class="chunk-head">原文片段</div>
-                  <div class="chunk-scroll"><span class="dim">（该条目未记录原文来源）</span></div>
-                  <button class="isrc-open chunk-open disabled" disabled>暂无原文链接</button>
-                </div>
-              </div>
+              <ChunkPanel
+                v-if="sel.segs && sel.segs.length"
+                :src-ids="sel.srcIds"
+                :file-paths="sel.fps"
+                :ws="ws"
+                @open-original="openOriginalFile" />
+              <ChunkPanel
+                v-else
+                :src-ids="[]"
+                :file-paths="[]"
+                :ws="ws"
+                @open-original="openOriginalFile" />
             </div>
 
-            <!-- 图例 -->
-            <div v-show="typeList.length" id="qlegend">
-              <div class="lhead">实体类型（勾选筛选）</div>
-              <el-checkbox class="legend-ck legend-batch" :model-value="allSelected"
-                @change="selectAllTypes">全选</el-checkbox>
-              <el-checkbox class="legend-ck legend-batch" :model-value="noneSelected"
-                @change="selectNoneTypes">全部不选</el-checkbox>
-              <el-checkbox v-for="t in typeList" :key="t" class="legend-ck"
-                :model-value="selectedTypes.includes(t)" @change="toggleType(t)">
-                <span class="sw" :style="{background: typeColors[t] || '#888'}"></span>{{ t }}
-              </el-checkbox>
+            <!-- 图例（使用通用 TypeLegend 组件） -->
+            <div v-show="typeList.length" id="qlegend" class="legend-host">
+              <TypeLegend
+                :type-list="typeList"
+                :type-colors="typeColors"
+                :selected-types="selectedTypes"
+                @toggle="toggleType"
+                @select-all="selectAllTypes"
+                @select-none="selectNoneTypes" />
             </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 引用悬浮气泡 -->
-    <div v-if="hover.visible" class="cite-hover"
-      :style="{ left: hover.x + 'px', top: hover.y + 'px' }"
-      @mouseenter="onBubbleEnter" @mousemove="onBubbleMove" @mouseleave="onBubbleLeave">
-      <div class="ch-title">{{ hover.title }}</div>
-      <div class="ch-body">{{ hover.content }}</div>
-      <div class="ch-hint">点击引用数字可打开原网页</div>
-    </div>
+    <!-- 引用悬浮气泡（使用通用 CiteHoverBubble 组件） -->
+    <CiteHoverBubble
+      :visible="hover.visible"
+      :x="hover.x" :y="hover.y"
+      :title="hover.title" :content="hover.content" />
   </div>
 </template>
 
@@ -294,6 +271,12 @@ import {
   queryData, streamRag, fetchChunk, splitSep, openOriginal
 } from '../composables/useLightragApi.js';
 import { mdToHtml, waitingHtml } from '../utils/markdown.js';
+
+import WorkspaceBadge from '../components/WorkspaceBadge.vue';
+import WorkspaceSelect from '../components/WorkspaceSelect.vue';
+import TypeLegend from '../components/TypeLegend.vue';
+import ChunkPanel from '../components/ChunkPanel.vue';
+import CiteHoverBubble from '../components/CiteHoverBubble.vue';
 
 const vis = { DataSet, Network };
 

@@ -13,15 +13,13 @@
   <div class="graph-page">
     <div id="bar">
       <span class="brand">
-        <span class="bbadge" :style="{background: currentMeta.color}">{{ currentMeta.badge }}</span>
+        <WorkspaceBadge :meta="currentMeta" />
         <span class="title">{{ currentMeta.name }}</span>
       </span>
       <el-button size="small" @click="goHome">‹ 导航</el-button>
       <el-button size="small" type="primary" @click="goQuery">智能问答</el-button>
       <label class="lbl">图谱</label>
-      <el-select :model-value="ws" @change="onWsChange" style="width:170px" filterable>
-        <el-option v-for="o in wsOptions" :key="o.v" :value="o.v" :label="o.t"></el-option>
-      </el-select>
+      <WorkspaceSelect v-model="ws" width="170px" filter @update:model-value="onWsChange" />
       <label class="lbl">上限</label>
       <el-select v-model="limitNum" @change="reload" style="width:88px">
         <el-option v-for="l in limitOptions" :key="l" :value="l" :label="String(l)"></el-option>
@@ -128,6 +126,8 @@ import { useRoute, useRouter } from 'vue-router';
 import { DataSet, Network } from 'vis-network/standalone/esm/vis-network';
 import { getDriver, wsMeta } from '../composables/useNeo4j.js';
 import { fetchChunk, splitSep, openOriginal } from '../composables/useLightragApi.js';
+import WorkspaceBadge from '../components/WorkspaceBadge.vue';
+import WorkspaceSelect from '../components/WorkspaceSelect.vue';
 
 const vis = { DataSet, Network };
 
