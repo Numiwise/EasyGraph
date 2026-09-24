@@ -23,7 +23,7 @@ docker compose up -d
 ### 模式 C：只跑基础设施（无 LightRAG）
 
 ```bash
-docker compose up -d neo4j qdrant postgres webviz neodash pgadmin
+docker compose up -d neo4j qdrant postgres webviz pgadmin
 ```
 
 适合调试或前端单独运行时。

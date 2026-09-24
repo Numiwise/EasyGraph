@@ -8,7 +8,6 @@
 |------|------|------|
 | **Webviz** | http://localhost:5006 | 主页 + 图谱浏览 + AI 问答（用户侧主入口） |
 | Neo4j Browser | http://localhost:7474 | 直接看图、跑 Cypher（管理员） |
-| NeoDash | http://localhost:5005 | 仪表板、统计图 |
 
 ## Webviz 三页
 
@@ -35,7 +34,7 @@ http://localhost:5006/#/graph/<workspace>
 - **点击节点**：右侧显示属性 + 邻居关系 + 原文片段
 - **悬停节点**：相邻边短暂高亮
 - **滚轮缩放**、**拖拽平移**
-- 顶部工具栏：切换子图、搜索、Neo4j Browser、NeoDash 等快捷入口
+- 顶部工具栏：切换子图、搜索、进入「智能问答」/「导航」等入口
 
 ### 3. AI 问答（QueryView）
 

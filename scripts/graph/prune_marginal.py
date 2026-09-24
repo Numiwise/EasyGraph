@@ -9,17 +9,34 @@
   - 误归类：白鹤梁水下博物馆（归到技术）
   - 噪声文献：新闻标题、乱码、白皮书、无关诗文（牡丹亭/莺莺传等）
   - 无关机构/制度：护士学校、织网店、保甲法等
-仅作用于展示库 7688，不触碰 LightRAG 全量库 7687。
+注意：仅作用于展示库 7688，不触碰 LightRAG 全量库 7687。
+
+关键点（给读者）：
+  - 默认 dry-run：只统计命中数量，不真正删除；想删除必须加 --apply。
+  - BLACKLIST 是可维护的\"黑名单\"：以后发现新的离题/噪声实体，直接往里加即可。
+  - 用实体名的精确匹配（entity_id IN)，不会误删同名的其它内容。
 
 用法:
   python prune_marginal.py            # 仅统计，不删除
   python prune_marginal.py --apply    # 真正删除
+
+安全说明：
+    AUTH 不再写死在代码里，而是从环境变量 NEO4J_PASSWORD 读取。
+    默认值在 .env.example 提供（开发用，与 docker-compose 默认一致）。
+    真正运行前请确保本目录或父目录存在 .env 文件，或直接 export NEO4J_PASSWORD。
 """
+import os
 import sys, argparse
 from neo4j import GraphDatabase
 
-DEFAULT_URI = "bolt://localhost:7688"     # 仅展示版（修剪库）
-AUTH = ("neo4j", "LightRAG2026neo4j")
+DEFAULT_URI = os.environ.get("NEO4J_URI_PRUNE", "bolt://localhost:7688")
+AUTH_USER = os.environ.get("NEO4J_USERNAME", "neo4j")
+AUTH_PASSWORD = os.environ.get("NEO4J_PASSWORD", "")
+AUTH = (AUTH_USER, AUTH_PASSWORD)
+if not AUTH_PASSWORD:
+    print("⚠️  NEO4J_PASSWORD 环境变量未设置，无法连接 Neo4j。")
+    print("   请在 .env 中设置后重试；详见 .env.example。")
+    sys.exit(1)
 LABELS = ["g00_master_all", "g01_people_literature", "g02_places_routes", "g03_varieties",
           "g04_history_institutions", "g05_lingnan_liwan", "g06_industry_tech"]
 

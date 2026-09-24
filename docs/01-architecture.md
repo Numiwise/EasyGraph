@@ -6,15 +6,15 @@
 ┌────────────────────────────────────────────────────────────────────┐
 │  浏览器 (Chrome/Edge)                                               │
 │  http://localhost:5006                                              │
-│  - 纯静态 SPA：无构建依赖，nginx 直接伺服                          │
-│  - 内嵌 Vue 3 + Element Plus + vis-network + neo4j-web（BOLT）     │
+│  - SPA：Vite 构建产物（dist），nginx 静态伺服                      │
+│  - Vue 3 + Element Plus + vis-network + neo4j-driver（BOLT）       │
 └────────────────────────────────────────────────────────────────────┘
                             │
         ┌───────────────────┼───────────────────┐
         ▼                                       ▼
 ┌──────────────────┐                   ┌─────────────────────────┐
-│ webviz (nginx)    │                   │ Neo4j Browser / NeoDash │
-│ - SPA 静态服务    │                   │ http://7474 / 5005      │
+│ webviz (nginx)    │                   │ Neo4j Browser          │
+│ - SPA 静态服务    │                   │ http://7474            │
 │ - /kb/<ws>/__parsed__/*.md 原文     │ (数据运维工具)            │
 │ - /llm/ 反代到 SiliconFlow（仅前端）│                           │
 └──────────────────┘                   └─────────────────────────┘
@@ -58,7 +58,6 @@
 | **PostgreSQL** | LightRAG 的 KV 状态、文档状态、任务队列 | `pgvector/pgvector:pg16` |
 | **LightRAG (总图)** | 端口 9621、`WORKSPACE=g00_master_all`，默认随基础设施启动 | `docker-compose.yml` service `lightrag` |
 | **LightRAG (分图 g01~g06)** | 端口 9622-9627，`profile=subgraphs`，按需启动 | `docker-compose.yml` services `lightrag-g01~g06` |
-| **NeoDash** | Neo4j 拖拽式仪表板，可自定义图表 | `neodash:latest`、端口 5005 |
 | **pgAdmin** | PostgreSQL Web 管理 | `dpage/pgadmin4:latest`、端口 5050 |
 | **webviz (nginx)** | 静态前端 + `/kb/` 原文 + `/llm/` 反代 | `nginx/*.conf`、端口 5006 |
 
@@ -107,7 +106,6 @@ LightRAG 一份实例只支持**一个** `WORKSPACE`。本项目通过 **同存�
 | 端口 | 服务 | 备注 |
 |------|------|------|
 | 5006 | webviz (前端) | 用户入口 |
-| 5005 | NeoDash | Neo4j 仪表板 |
 | 5050 | pgAdmin | PostgreSQL 管理 |
 | 5432 | PostgreSQL | LightRAG + pgAdmin |
 | 6333 | Qdrant Dashboard | 向量库管理 |
@@ -125,7 +123,7 @@ LightRAG 一份实例只支持**一个** `WORKSPACE`。本项目通过 **同存�
 | 改服务编排 | `docker-compose.yml` |
 | 改环境变量 | `.env`（不入 git）+ `.env.example`（模板） |
 | 改存储后端 | `.env` 里 `LIGHTRAG_*_STORAGE` |
-| 改前端 UI | `frontend/src/views/*.js` + `frontend/src/styles/*.css` |
+| 改前端 UI | `frontend/src/views/*.vue` + `frontend/src/styles/main.css` |
 | 改领域抽取 | `data/prompts/entity_type/*.yml` |
 | 加新子图 | 复制 `docker-compose.yml` 里 `lightrag-g01` 一段改 WORKSPACE |
 | 跑图谱清理 | `scripts/graph/*.py` |

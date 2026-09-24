@@ -1,17 +1,35 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""清理 6 个子图工作区：
-  1. 删除孤立点（无任何连线）
-  2. 只保留最大弱连通分量（核心社群），删除其余小碎片节点
-  3. 扫描并报告疑似同义重复实体（供人工合并）
-用法: python clean_graph.py [g01|g02|...|all]
 """
+clean_graph.py —— 清理 6 个子图工作区
+==================================================================
+业务用途：在做完 LightRAG 抽取后，图里会有不少\"噪音节点\"，本脚本做三步清理：
+  1. 删除孤立点（无任何连线）—— 没跟别人连上，多半是抽取噪声
+  2. 只保留\"最大弱连通分量\"（核心社群），删除其余小碎片节点
+  3. 扫描并报告疑似同义重复实体（供人工合并，不自动删）
+
+用法:
+    python clean_graph.py [g01|g02|...|all]     # 不传参数 = all（处理全部 7 个，含 g00）
+
+说明：下列 AUTH 不再写死在代码里，而是从环境变量 NEO4J_PASSWORD 读取。
+       默认值在 .env.example 提供（开发用，与 docker-compose 默认一致）。
+       真正运行前请确保本目录或父目录存在 .env 文件，或直接 export NEO4J_PASSWORD。
+"""
+import os
 import sys
 from collections import Counter, deque, defaultdict
 from neo4j import GraphDatabase
 
-URI = "bolt://localhost:7688"   # 展示版 neo4j-display（清理后的精简图）
-AUTH = ("neo4j", "LightRAG2026neo4j")
+# ===== 配置（凭证从环境变量读）=====
+# 展示版 neo4j-display（清理后的精简图）。注意：这里端口 7688 是反代端口。
+URI = os.environ.get("NEO4J_URI_PRUNE", "bolt://localhost:7688")
+AUTH_USER = os.environ.get("NEO4J_USERNAME", "neo4j")
+AUTH_PASSWORD = os.environ.get("NEO4J_PASSWORD", "")
+AUTH = (AUTH_USER, AUTH_PASSWORD)
+if not AUTH_PASSWORD:
+    print("⚠️  NEO4J_PASSWORD 环境变量未设置，无法连接 Neo4j。")
+    print("   请在 .env 中设置后重试；详见 .env.example。")
+    sys.exit(1)
 LABELS = ["g00_master_all", "g01_people_literature", "g02_places_routes", "g03_varieties",
           "g04_history_institutions", "g05_lingnan_liwan", "g06_industry_tech"]
 

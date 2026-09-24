@@ -61,7 +61,6 @@ lightrag-webviz      Up
 | Neo4j Browser | http://localhost:7474 |
 | Qdrant Dashboard | http://localhost:6333/dashboard |
 | pgAdmin | http://localhost:5050 |
-| NeoDash | http://localhost:5005 |
 
 ### 浏览器直连 Neo4j：webviz
 

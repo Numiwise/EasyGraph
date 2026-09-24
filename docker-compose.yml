@@ -9,8 +9,7 @@
 #   - 向量存储 → Qdrant（替换默认 NanoVectorDBStorage）
 #   - KV / DocStatus → PostgreSQL（替换默认 JSON 文件存储）
 # 可视化：
-#   - LightRAG       : http://127.0.0.1:9621
-#   - NeoDash (图谱) : http://localhost:5005  ← Neo4j 官方仪表板
+#   - 前端可视化大屏 : http://localhost:5006
 #   - Neo4j Browser  : http://localhost:7474
 #   - Qdrant Dashboard: http://localhost:6333/dashboard
 #   - pgAdmin (PG)   : http://localhost:5050
@@ -22,10 +21,12 @@ services:
     container_name: lightrag-neo4j
     restart: unless-stopped
     ports:
-      - "7474:7474"   # Neo4j Browser Web UI（完整版，备份保留）
-      - "7687:7687"   # Bolt 协议（LightRAG 抽取写入此实例）
+      - "127.0.0.1:7474:7474"   # Neo4j Browser Web UI（仅本地，外部不可达）
+      - "127.0.0.1:7687:7687"   # Bolt 协议（LightRAG 抽取写入此实例，仅本地）
     environment:
-      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD}
+      # NEO4J_PASSWORD 默认值在 .env.example 提供（开箱即用）。
+      # 用户可在 .env 中替换为强随机串；外/公网环境**强烈建议**替换。
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-lightrag-localdev-neo4j}
       NEO4J_server_bolt_listen__address: ":7687"
       NEO4J_server_http_listen__address: ":7474"
       NEO4J_server_memory_heap_initial__size: 256m
@@ -52,10 +53,11 @@ services:
     container_name: lightrag-neo4j-display
     restart: unless-stopped
     ports:
-      - "7475:7474"   # Neo4j Browser Web UI（展示版）
-      - "7688:7687"   # Bolt 协议（前端 webviz 使用此端口）
+      - "127.0.0.1:7475:7474"   # Neo4j Browser Web UI（展示版，仅本地）
+      - "127.0.0.1:7688:7687"   # Bolt 协议（api-bridge 通过 compose 内部网络访问）
     environment:
-      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD}
+      # NEO4J_PASSWORD 默认值在 .env.example 提供（开箱即用）。
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-lightrag-localdev-neo4j}
       NEO4J_server_bolt_listen__address: ":7687"
       NEO4J_server_http_listen__address: ":7474"
       NEO4J_server_memory_heap_initial__size: 256m
@@ -78,8 +80,8 @@ services:
     container_name: lightrag-qdrant
     restart: unless-stopped
     ports:
-      - "6333:6333"   # HTTP API + Dashboard（http://localhost:6333/dashboard）
-      - "6334:6334"   # gRPC 端口
+      - "127.0.0.1:6333:6333"   # HTTP API + Dashboard（仅本地）
+      - "127.0.0.1:6334:6334"   # gRPC 端口（仅本地）
     volumes:
       - qdrant_data:/qdrant/storage
     healthcheck:
@@ -89,17 +91,18 @@ services:
       retries: 15
       start_period: 15s
 
-  # ========== PostgreSQL（KV / DocStatus 存储） ==========
+# ========== PostgreSQL（KV / DocStatus 存储） ==========
   # 提供 pgvector 扩展，未来如需向量存储也可切换到 PGVectorStorage
   postgres:
     image: pgvector/pgvector:pg16
     container_name: lightrag-postgres
     restart: unless-stopped
     ports:
-      - "5432:5432"   # PostgreSQL 协议（LightRAG 通过此端口连接）
+      - "127.0.0.1:5432:5432"   # PostgreSQL 协议（仅本地）
     environment:
+      # 默认值在 .env.example 提供（开箱即用）；用户可在 .env 中替换。
       POSTGRES_USER: ${POSTGRES_USER:-lightrag}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-LightRAG2026pg}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lightrag-localdev-pg}
       POSTGRES_DB: ${POSTGRES_DATABASE:-lightrag}
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -110,16 +113,17 @@ services:
       retries: 15
       start_period: 15s
 
-  # ========== pgAdmin（PostgreSQL Web UI） ==========
+# ========== pgAdmin（PostgreSQL Web UI） ==========
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: lightrag-pgadmin
     restart: unless-stopped
     ports:
-      - "5050:80"     # pgAdmin Web UI（http://localhost:5050）
+      - "127.0.0.1:5050:80"     # pgAdmin Web UI（仅本地）
     environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@lightrag.com}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-LightRAG2026admin}
+      # 默认值在 .env.example 提供（开箱即用）；用户可在 .env 中替换。
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@local.test}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-lightrag-localdev-admin}
       PGADMIN_CONFIG_SERVER_MODE: "False"
       PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
     volumes:
@@ -128,38 +132,74 @@ services:
       postgres:
         condition: service_healthy
 
-  # ========== NeoDash（Neo4j 可视化仪表板） ==========
-  # 开源、低代码、拖拽式构建图谱仪表板
-  # 节点可显示 entity_id、关系显示 description、按 entity_type 着色
-  neodash:
-    image: neo4jlabs/neodash:latest
-    container_name: lightrag-neodash
+  # ========== 后端 API 网关（FastAPI，轻量化，隔离前端与数据库直连） ==========
+  # 职责：
+  #   - 前端浏览器不再直连 Neo4j bolt:// 和 Qdrant http://（避免 JS 暴露数据库地址/密码）
+  #   - 前端只访问 /api/*，nginx 反代到本服务（同一容器网络，无 CORS）
+  #   - 本服务持有 Neo4j/Qdrant 凭证（通过环境变量注入，不在前端代码里）
+  #   - 仅暴露端口 9630 绑定 127.0.0.1（不暴露到宿主机网络，对外不可访问）
+  api-bridge:
+    image: python:3.11-slim
+    container_name: lightrag-api-bridge
     restart: unless-stopped
-    ports:
-      - "5005:5005"   # NeoDash Web UI（http://localhost:5005）
+    working_dir: /app
+    # 单行 command：pip 安装依赖后启动 uvicorn（bash -c 避免 PowerShell ; 注入问题）
+    command: ["bash", "-c", "pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt && exec uvicorn backend.main:app --host 0.0.0.0 --port 9630 --proxy-headers"]
+    volumes:
+      # .env 包含 NEO4J_PASSWORD 等敏感信息，只读挂载
+      - ./.env:/app/.env:ro
+      # backend/ 目录包含后端网关代码（config.py, db.py, queries.py 等）
+      - ./backend:/app/backend:ro
+      # requirements.txt 包含 api-bridge 的 Python 依赖
+      - ./requirements.txt:/app/requirements.txt:ro
     environment:
-      # Standalone 模式：预配置 Neo4j 连接，用户无需手动输入
-      STANDALONE_USERNAME: "neo4j"
-      STANDALONE_PASSWORD: "${NEO4J_PASSWORD:-LightRAG2026neo4j}"
-      STANDALONE_URL: "bolt://neo4j:7687"
-      STANDALONE_DATABASE: "neo4j"
-      # 允许嵌入与跨域（教学环境便利）
-      SAMESITE: "lax"
-      SECURE: "false"
+      # Neo4j 连接（展示版数据库）。默认值在 .env.example 提供（开箱即用）。
+      NEO4J_URI: "bolt://neo4j-display:7687"
+      NEO4J_USER: "neo4j"
+      NEO4J_PASSWORD: "${NEO4J_PASSWORD:-lightrag-localdev-neo4j}"
+      # 后端到前端共享的 bridge token（用于 nginx -> api-bridge 的请求认证）。
+      # 默认值 dev-bridge-token 让首次开箱即用；外/公网环境**强烈建议**替换。
+      BRIDGE_TOKEN: "${BRIDGE_TOKEN:-dev-bridge-token}"
+      # Qdrant 连接（compose 内部网络，服务名=qdrant）
+      QDRANT_URL: "http://qdrant:6333"
+      QDRANT_CHUNK_COLLECTION: "lightrag_vdb_chunks_baai_bge_m3_1024d"
+    ports:
+      - "127.0.0.1:9630:9630"   # 仅绑定本地环回，外网无法直接访问
     depends_on:
-      neo4j:
+      neo4j-display:
+        condition: service_healthy
+      qdrant:
         condition: service_healthy
 
-  # ========== 图谱可视化大屏（Vue3 + Element Plus 前端，浏览器直连 Neo4j bolt） ==========
-  # 七个工作区路由切换 / 按实体类型着色筛选 / 搜索 / 点击查看实体与关系描述
+  # ========== 图谱可视化大屏（Vue3 + Vite，通过 nginx 反代访问后端 api-bridge） ==========
+  # 安全架构：
+  #   浏览器 → nginx:80 → api-bridge:9630 → neo4j-display:7687 / qdrant:6333
+  #   浏览器不再直连数据库（Neo4j bolt / Qdrant HTTP），凭证只存在于 api-bridge 容器内。
+  #   部署方式一（推荐，秒启动）：bind 挂载本地已构建的 ./dist 到 nginx 静态目录
+  #     前置：先 npm install && npm run build 生成 ./dist
+  #     启动：docker compose up -d webviz
+  #   部署方式二（可选，打包镜像）：webviz.Dockerfile 多阶段构建
+  #     启动：docker compose --profile build build webviz
+  #   七个工作区路由切换 / 按实体类型着色筛选 / 搜索 / 点击查看实体与关系描述
   webviz:
     image: nginx:alpine
     container_name: lightrag-webviz
     restart: unless-stopped
+    depends_on:
+      neo4j-display:
+        condition: service_started
     ports:
       - "5006:80"   # 图谱可视化大屏（http://localhost:5006）
+    # 把 LLM key 从 .env 注入容器，供 nginx 模板 envsubst（见下）使用。
+    # 安全：key 走 .env（不入 git），不在代码里写死。
+    environment:
+      LLM_BINDING_API_KEY: "${LLM_BINDING_API_KEY:-}"
+      # Bridge token：nginx 在 /api/ 反代时把它写到 X-Bridge-Token 头。
+      # 默认值 dev-bridge-token 让首次开箱即用；外/公网环境**强烈建议**替换。
+      BRIDGE_TOKEN: "${BRIDGE_TOKEN:-dev-bridge-token}"
     volumes:
-      - ./frontend:/usr/share/nginx/html:ro
+      # 前端 SPA 静态产物（Vue3 + Vite 构建后 = dist）
+      - ./dist:/usr/share/nginx/html:ro
       # 原文资料（已解析的 markdown）挂载到容器内独立路径 /kb，供前端「查看完整原文」使用
       # 注意：不能挂到 /usr/share/nginx/html 之下（该目录为只读挂载，无法创建子挂载点）
       # 访问路径：http://localhost:5006/kb/<workspace>/__parsed__/<文件名>
@@ -167,8 +207,12 @@ services:
       # 自定义 nginx 配置：
       #   nginx-main.conf  → 主配置（user root，规避挂载文件 0600 权限问题）
       #   nginx-webviz.conf → 站点配置（暴露 /kb/ 纯文本目录 + SPA 回落）
+      #     * 以 .template 挂在 /etc/nginx/templates/ 下，nginx 官方 entrypoint 会在
+      #       启动时对其做 envsubst（把 ${LLM_BINDING_API_KEY} 替换为容器环境变量的值），
+      #       再渲染出 /etc/nginx/conf.d/webviz.conf。这样真实 LLM key 只需在 .env 里
+      #       提供，代码里不写死。
       - ./nginx/nginx-main.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/nginx-webviz.conf:/etc/nginx/conf.d/webviz.conf:ro
+      - ./nginx/nginx-webviz.conf:/etc/nginx/templates/webviz.conf.template:ro
 
   # ========== LightRAG 服务（7 个图谱 = 6 分图 + 1 总图） ==========
   # 机制：LightRAG v1.5.6 一个容器实例固定使用一个 WORKSPACE；存储层按工作区
@@ -221,28 +265,29 @@ services:
       HOST: "0.0.0.0"
       PORT: "9621"
       # LLM（SiliconFlow DeepSeek-V3，OpenAI 兼容协议）
+      # 安全：key 从 .env 读取（.env 不入 git），不要在代码里硬编码真实 key。
       LLM_BINDING: "openai"
       LLM_BINDING_HOST: "https://api.siliconflow.cn/v1"
-      LLM_BINDING_API_KEY: "sk-tnfbxqnjsiqbwbsdhikypadmnwiuzrvtjwcrjubwgyfdhwsi"
+      LLM_BINDING_API_KEY: "${LLM_BINDING_API_KEY:?请在 .env 中设置 LLM_BINDING_API_KEY}"
       LLM_MODEL: "deepseek-ai/DeepSeek-V3"
       # Embedding（保持不变）
       EMBEDDING_BINDING: "openai"
       EMBEDDING_BINDING_HOST: "https://api.siliconflow.cn/v1"
-      EMBEDDING_BINDING_API_KEY: "sk-tnfbxqnjsiqbwbsdhikypadmnwiuzrvtjwcrjubwgyfdhwsi"
+      EMBEDDING_BINDING_API_KEY: "${EMBEDDING_BINDING_API_KEY:?请在 .env 中设置 EMBEDDING_BINDING_API_KEY}"
       EMBEDDING_MODEL: "BAAI/bge-m3"
       EMBEDDING_DIM: "1024"
       # Qdrant 连接（compose 内部网络，服务名=qdrant）
       QDRANT_URL: "http://qdrant:6333"
-      # Neo4j 连接
+      # Neo4j 连接（默认值在 .env.example 提供；用户可在 .env 中替换）
       NEO4J_URI: "bolt://neo4j:7687"
       NEO4J_USERNAME: "neo4j"
-      NEO4J_PASSWORD: "LightRAG2026neo4j"
-      # PostgreSQL 连接（compose 内部网络，服务名=postgres）
+      NEO4J_PASSWORD: "${NEO4J_PASSWORD:-lightrag-localdev-neo4j}"
+      # PostgreSQL 连接（默认值在 .env.example 提供；用户可在 .env 中替换）
       POSTGRES_HOST: "postgres"
       POSTGRES_PORT: "5432"
-      POSTGRES_USER: "lightrag"
-      POSTGRES_PASSWORD: "LightRAG2026pg"
-      POSTGRES_DATABASE: "lightrag"
+      POSTGRES_USER: "${POSTGRES_USER:-lightrag}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-lightrag-localdev-pg}"
+      POSTGRES_DATABASE: "${POSTGRES_DATABASE:-lightrag}"
       # 存储后端切换：KV / DocStatus → PostgreSQL（替换默认 JSON 文件存储）
       LIGHTRAG_KV_STORAGE: "PGKVStorage"
       LIGHTRAG_DOC_STATUS_STORAGE: "PGDocStatusStorage"

@@ -1,0 +1,27 @@
+{
+  "name": "lightrag-webviz",
+  "version": "2.0.0-vue3",
+  "private": true,
+  "type": "module",
+  "description": "LightRAG 知识图谱可视化前端 — Vue 3 + Vite 工程（refactor/vue3-rewrite 分支起步版）",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --host --port 5006"
+  },
+  "dependencies": {
+    "vue": "^3.4.38",
+    "vue-router": "^4.4.5",
+    "element-plus": "^2.8.4",
+    "@element-plus/icons-vue": "^2.3.1",
+    "vis-network": "^9.1.9",
+    "vis-data": "^7.1.9",
+    "neo4j-driver": "^5.25.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.1.4",
+    "vite": "^5.4.10",
+    "unplugin-auto-import": "^0.18.3",
+    "unplugin-vue-components": "^0.27.4"
+  }
+}

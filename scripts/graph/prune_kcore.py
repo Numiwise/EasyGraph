@@ -1,22 +1,41 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""k-core 修剪 + 只保留最大连通分量（最严格清理"外围游离"）
-策略：
-  1. 迭代摘除度 < k 的节点（k-core 修剪）：孤立点、叶子、链式挂件都脱落
-  2. 再只保留最大弱连通分量（剔除游离小集团）
-  3. 同时删掉小分量（< MIN_COMP 节点），保留核心大集团
+"""
+prune_kcore.py —— k-core 修剪 + 只保留最大连通分量
+==================================================================
+业务用途：
+    前两个修剪脚本（prune_graph / clean_graph）按"类型白名单"和"孤立点"清理，
+    但仍可能残留"链式挂件"——一条长链的中间节点虽然连了两端，
+    却和核心社群关系不大。本脚本用更严格的图论办法处理：
+    策略：
+      1. 迭代摘除度 < k 的节点（k-core 修剪）：孤立点、叶子、链式挂件都脱落
+      2. 再只保留最大弱连通分量（剔除游离小集团）
+      3. 同时删掉小分量（< MIN_COMP 节点），保留核心大集团
 
 用法:
   python prune_kcore.py                # 默认 k=2（保留所有 deg>=2 的节点）+ 全部子图
   python prune_kcore.py --k 3          # 3-core（更严格，剩 deg>=3）
   python prune_kcore.py g01_people_literature   # 仅处理特定子图
+
+安全说明：
+    AUTH 不再写死在代码里，而是从环境变量 NEO4J_PASSWORD 读取。
+    默认值在 .env.example 提供（开发用，与 docker-compose 默认一致）。
+    真正运行前请确保本目录或父目录存在 .env 文件，或直接 export NEO4J_PASSWORD。
 """
+import os
 import sys, argparse
 from collections import Counter, deque, defaultdict
 from neo4j import GraphDatabase
 
-URI = "bolt://localhost:7688"   # 展示版 neo4j-display
-AUTH = ("neo4j", "LightRAG2026neo4j")
+# ===== 配置（凭证从环境变量读）=====
+URI = os.environ.get("NEO4J_URI_PRUNE", "bolt://localhost:7688")
+AUTH_USER = os.environ.get("NEO4J_USERNAME", "neo4j")
+AUTH_PASSWORD = os.environ.get("NEO4J_PASSWORD", "")
+AUTH = (AUTH_USER, AUTH_PASSWORD)
+if not AUTH_PASSWORD:
+    print("⚠️  NEO4J_PASSWORD 环境变量未设置，无法连接 Neo4j。")
+    print("   请在 .env 中设置后重试；详见 .env.example。")
+    sys.exit(1)
 LABELS = ["g00_master_all", "g01_people_literature", "g02_places_routes", "g03_varieties",
           "g04_history_institutions", "g05_lingnan_liwan", "g06_industry_tech"]
 # 小于这个规模的连通分量整体删掉（视为游离小组）
@@ -51,8 +70,12 @@ def main():
             deg = {i: len(adj[i] & nset) for i in nset}
 
             # ---- k-core：迭代摘除度 < k 的节点 ----
-            alive = set(nset)
-            ddeg = dict(deg)
+            # 图论"k-core 修剪"：反复删除度数 < k 的节点（删除后会让邻居度数下降，
+            # 可能又触发新的删除）。最终剩下的子图里每个节点度数都 >= k，
+            # 也就没有"叶子/链尾"这类弱连接了。
+            alive = set(nset)                       # 还能存活（未删除）的节点集合
+            ddeg = dict(deg)                        # 当前实时度数（会随删除递减）
+            # 初始把所有度 < k 的节点入队，逐一出队并摘除
             q = deque(i for i in alive if ddeg[i] < args.k)
             removed = set()
             while q:

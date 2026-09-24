@@ -15,16 +15,34 @@
   - 03b-全球格局-PMC荔枝全球产业综述
   - 10-育种-NatureGenetics2022荔枝基因组论文
 
+关键实现（Cypher 思路）：
+  - 先把 file_path 按 '<SEP>' 拆成数组 parts。
+  - ANY(p IN parts WHERE 标记) 判断「是否至少含一个英文来源」。
+  - ALL(p IN parts WHERE 标记) 判断「是否所有分段都是英文来源」。
+  - 两者同时成立 = 纯英文来源 → 删除；只要含一段中文来源就保留。
+
 用法:
   python remove_english.py [--uri bolt://localhost:7688] [--apply]
   默认仅统计（dry-run），加 --apply 才真正删除。
+
+安全说明：
+    AUTH 不再写死在代码里，而是从环境变量 NEO4J_PASSWORD 读取。
+    默认值在 .env.example 提供（开发用，与 docker-compose 默认一致）。
+    真正运行前请确保本目录或父目录存在 .env 文件，或直接 export NEO4J_PASSWORD。
 """
+import os
 import sys
 import argparse
 from neo4j import GraphDatabase
 
-DEFAULT_URI = "bolt://localhost:7688"
-AUTH = ("neo4j", "LightRAG2026neo4j")
+DEFAULT_URI = os.environ.get("NEO4J_URI_PRUNE", "bolt://localhost:7688")
+AUTH_USER = os.environ.get("NEO4J_USERNAME", "neo4j")
+AUTH_PASSWORD = os.environ.get("NEO4J_PASSWORD", "")
+AUTH = (AUTH_USER, AUTH_PASSWORD)
+if not AUTH_PASSWORD:
+    print("⚠️  NEO4J_PASSWORD 环境变量未设置，无法连接 Neo4j。")
+    print("   请在 .env 中设置后重试；详见 .env.example。")
+    sys.exit(1)
 LABELS = ["g00_master_all", "g01_people_literature", "g02_places_routes", "g03_varieties",
           "g04_history_institutions", "g05_lingnan_liwan", "g06_industry_tech"]
 
