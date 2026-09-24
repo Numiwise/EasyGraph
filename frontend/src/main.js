@@ -1,8 +1,9 @@
 /* ============================================================
  * Vue 3 应用入口
  *   - 由 Vite 处理（index.html 通过 <script type="module" src> 加载）
- *   - 注册路由 + Element Plus（自动按需）
- *   - 旧版（Vue 3 UMD 全局脚本）逻辑等价：用 ESM 替换 Vue.createApp 全局
+ *   - 注册路由 + Element Plus（按需自动导入）
+ *   - 只引入全局样式（CSS 变量、Element Plus 主题微调）
+ *   - 各 view 的专属样式已拆入对应 .vue 文件的 <style scoped>
  * ============================================================ */
 import { createApp } from 'vue';
 import ElementPlus from 'element-plus';
@@ -13,10 +14,6 @@ import App from './App.vue';
 import router from './router';
 
 import './styles/main.css';
-import './styles/home.css';
-import './styles/graph.css';
-import './styles/query.css';
-import './styles/doc.css';
 
 const app = createApp(App);
 
