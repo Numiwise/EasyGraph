@@ -147,15 +147,32 @@
                 <div class="bubbles-end"></div>
               </div>
             </div>
-            <!-- 输入区：支持 enter / shift+enter / ctrl+enter 三种提交组合 -->
+            <!-- 输入区：固定在底部，ChatGPT 风格 -->
             <div class="chat-input">
-              <el-input v-model="query" class="qbar-input"
-                placeholder="输入问题，回车查询（Shift+Enter 换行）"
-                :disabled="loading"
-                @keydown.enter.exact.prevent="runQuery()"
-                @keydown.shift.enter.exact="appendNewline"
-                @keydown.ctrl.enter="runQuery()"></el-input>
-              <el-button type="primary" :loading="loading" :disabled="loading" @click="runQuery()">查询</el-button>
+              <div class="input-wrap">
+                <el-input
+                  v-model="query"
+                  class="chat-textarea"
+                  type="textarea"
+                  :rows="1"
+                  :disabled="loading"
+                  placeholder="输入问题，回车发送（Shift+Enter 换行）"
+                  @keydown.enter.exact.prevent="runQuery()"
+                  @keydown.shift.enter.exact="appendNewline"
+                  @keydown.ctrl.enter="runQuery()"
+                  @input="autoResize"
+                  ref="textareaRef"></el-input>
+                <el-button
+                  type="primary"
+                  class="send-btn"
+                  :loading="loading"
+                  :disabled="loading || !query.trim()"
+                  @click="runQuery()">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" fill="currentColor"/>
+                  </svg>
+                </el-button>
+              </div>
             </div>
           </div>
         </div>
@@ -186,14 +203,32 @@
                 <div class="bubbles-end"></div>
               </div>
             </div>
+            <!-- 输入区：固定在底部，ChatGPT 风格 -->
             <div class="chat-input">
-              <el-input v-model="query" class="qbar-input"
-                placeholder="继续提问，回车查询（Shift+Enter 换行）"
-                :disabled="loading"
-                @keydown.enter.exact.prevent="runQuery()"
-                @keydown.shift.enter.exact="appendNewline"
-                @keydown.ctrl.enter="runQuery()"></el-input>
-              <el-button type="primary" :loading="loading" :disabled="loading" @click="runQuery()">查询</el-button>
+              <div class="input-wrap">
+                <el-input
+                  v-model="query"
+                  class="chat-textarea"
+                  type="textarea"
+                  :rows="1"
+                  :disabled="loading"
+                  placeholder="继续提问，回车发送（Shift+Enter 换行）"
+                  @keydown.enter.exact.prevent="runQuery()"
+                  @keydown.shift.enter.exact="appendNewline"
+                  @keydown.ctrl.enter="runQuery()"
+                  @input="autoResize"
+                  ref="textareaRef2"></el-input>
+                <el-button
+                  type="primary"
+                  class="send-btn"
+                  :loading="loading"
+                  :disabled="loading || !query.trim()"
+                  @click="runQuery()">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" fill="currentColor"/>
+                  </svg>
+                </el-button>
+              </div>
             </div>
           </div>
 
@@ -272,7 +307,8 @@
     <CiteHoverBubble
       :visible="hover.visible"
       :x="hover.x" :y="hover.y"
-      :title="hover.title" :content="hover.content" />
+      :title="hover.title" :content="hover.content"
+      @enter="onBubbleEnter" @move="onBubbleMove" @leave="onBubbleLeave" />
   </div>
 </template>
 
@@ -285,7 +321,7 @@
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { DataSet, Network } from 'vis-network/standalone/esm/vis-network';
-import { WS_META, wsMeta, getDriver } from '../composables/useNeo4j.js';
+import { WS_META, wsMeta, api } from '../composables/useNeo4j.js';
 import {
   queryData, streamRag, fetchChunk, splitSep, openOriginal
 } from '../composables/useLightragApi.js';
@@ -438,6 +474,8 @@ function setRenameRef(el, id) {
 }
 const chatScroll = ref(null);
 const chatScroll2 = ref(null);
+const textareaRef = ref(null);
+const textareaRef2 = ref(null);
 
 /* ============================================================
  * 计算属性
@@ -475,6 +513,16 @@ function setStatus(ok, text) {
 }
 // Shift+Enter：往 query 里追加一个换行
 function appendNewline() { query.value += '\n'; }
+// 自动调整 textarea 高度
+function autoResize() {
+  nextTick(() => {
+    const el = textareaRef.value?.textarea || textareaRef2.value?.textarea;
+    if (el) {
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+    }
+  });
+}
 // 等待 ms 毫秒（用 setTimeout 返回 Promise）
 function waitFrame(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -1279,22 +1327,18 @@ function onGraphPick(params) {
   }
 }
 
-// loadNodeAttrs —— 节点点击时去 Neo4j 拉它的 properties
+// loadNodeAttrs —— 节点点击时通过后端 api 拉它的 properties（不再直连 Neo4j）
 async function loadNodeAttrs(name) {
   if (!name) return;
-  const session = getDriver().session({ database: 'neo4j' });
   try {
-    const r = await session.run(
-      'MATCH (n:`' + ws.value + '`) WHERE n.entity_id = $name RETURN properties(n) AS props LIMIT 1',
-      { name });
-    if (!r.records.length) return;
-    const props = r.records[0].get('props') || {};
+    const result = await api.node(ws.value, name);
+    if (!result || !result.props) return;
+    const props = result.props;
     Object.assign(sel, {
       props,
       extraProps: extractExtraProps(props)
     });
   } catch (err) { /* ignore */ }
-  finally { await session.close(); }
 }
 
 /* ============================================================
@@ -1407,7 +1451,7 @@ watch(ws, (v, ov) => {
 }
 .chat-card {
   width: min(820px, 96%);
-  height: min(78vh, 720px);
+  height: min(85vh, 800px);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -1508,6 +1552,82 @@ watch(ws, (v, ov) => {
   overflow-y: auto;
   padding: 18px 20px;
   background: var(--surface);
+}
+
+/* ============================================================
+ * ChatGPT 风格底部固定输入区
+ * ============================================================ */
+/* 输入区容器：固定在底部 */
+.chat-input {
+  flex: 0 0 auto;
+  padding: 12px 16px 14px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+
+/* 输入框包装器：圆角边框 + 阴影（ChatGPT 风格） */
+.input-wrap {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  background: #f4f6f8;
+  border: 1px solid var(--border-2);
+  border-radius: 12px;
+  padding: 6px 6px 6px 12px;
+  box-shadow: 0 2px 8px rgba(15, 26, 42, .08);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.input-wrap:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 2px 12px rgba(31, 111, 235, .15);
+}
+
+/* textarea 样式：去除边框，透明背景 */
+.chat-textarea {
+  flex: 1;
+  min-height: 24px;
+  max-height: 120px;
+}
+.chat-textarea :deep(.el-textarea__inner) {
+  border: none;
+  background: transparent;
+  resize: none;
+  padding: 4px 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-1);
+  box-shadow: none !important;
+}
+.chat-textarea :deep(.el-textarea__inner::placeholder) {
+  color: var(--text-3);
+}
+.chat-textarea :deep(.el-textarea__inner:disabled) {
+  background: transparent;
+}
+
+/* 发送按钮：圆形主色按钮 */
+.send-btn {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  padding: 0;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s, transform 0.1s;
+}
+.send-btn:not(:disabled):hover {
+  background: var(--primary-strong);
+  transform: scale(1.05);
+}
+.send-btn:not(:disabled):active {
+  transform: scale(0.95);
+}
+.send-btn:disabled {
+  background: var(--border);
+  opacity: 0.6;
 }
 .bubbles {
   display: flex;

@@ -37,6 +37,10 @@
 //            因为这个项目同时跑多个 workspace，每个 workspace 一个端口（见 nginx）。
 import { SEP, portOf } from '../utils/lightrag-config.js';
 
+// 从 composables/useNeo4j.js 引入 api 客户端（封装对后端 /api/* 的调用）。
+// 这里仅用它的 chunk() 去取原文段落 —— 由后端 api-bridge 代理 Qdrant，前端不再直连。
+import { api } from './useNeo4j.js';
+
 /* ====== 工作区 → LightRAG 实例端口（集中配置） ======
  * 端口映射统一在 utils/lightrag-config.js 里维护（portOf(ws)）。
  * 这样改动端口只需要改一个地方。*/
@@ -239,50 +243,27 @@ export async function queryData(ws, query, opts = {}) {
 
 
 /* ================================================================
- *  Qdrant 向量库相关
+ *  原文段落（chunk）取回
  * ------------------------------------------------------------
- *  LightRAG 把"原文段落（chunk）"也向量化后存进了 Qdrant。
- *  简单情况下我们可以直接 POST /query 拿到 chunks 里的 content，
- *  但有时候 chunkId 是已知量（比如引用面板里点击某条引用），需要"按 id 单独取"，
- *  这时就去 Qdrant 直接取。
+ *  LightRAG 把"原文段落（chunk）"向量化后存进 Qdrant。改版前前端直接连 Qdrant(6333)
+ *  取数据；现在统一走后端 api-bridge 的 /api/chunk（由后端代理 Qdrant），
+ *  前端不再暴露任何数据库地址/端口。这里只是把后端返回包一层，保持原调用签名。
  * ================================================================ */
 
-// Qdrant 服务默认监听在本机 6333 端口（容器化场景可通过 Nginx 反代）
-const QDRANT_HOST = 'http://localhost:6333';
-// LightRAG 在 Qdrant 里建好的 collection 名（BAAI BGE-M3，1024 维向量）
-const CHUNK_COLLECTION = 'lightrag_vdb_chunks_baai_bge_m3_1024d';
-
 /**
- * fetchChunk(chunkId, ws) —— 按 chunk 主键 + workspace 消歧，取一条 chunk 完整 payload
- * 返回：payload 对象（含 content / workspace_id / full_doc_id 等元数据）或 null
+ * fetchChunk(chunkId, ws) —— 按 chunk 主键 + workspace 消歧，取一条 chunk 完整 payload。
+ *  实际请求交给后端 api-bridge（它去 Qdrant 查），前端只 fetch 同源 /api/chunk。
+ *
+ * @param {string} chunkId chunk 主键
+ * @param {string} ws workspace id（用于消歧）
+ * @returns {Promise<Object|null>} payload（含 content/workspace_id/full_doc_id 等）或 null
  */
 export async function fetchChunk(chunkId, ws) {
   if (!chunkId) return null;
-  // 构造 Qdrant 的 Scroll API 请求体（filter 过滤 + limit/with_payload）
-  const body = {
-    filter: {
-      // must 是个"且"关系：要求 id 等于 chunkId 且 workspace_id 等于当前 ws
-      must: [
-        { key: 'id', match: { value: chunkId } },
-        { key: 'workspace_id', match: { value: ws } }
-      ]
-    },
-    limit: 5,             // 即使有重复也最多返回 5 条
-    with_payload: true,   // 携带全部 payload（字段元数据 + content）
-    with_vector: false    // 不要向量本体，省带宽（前端不画向量）
-  };
-  const res = await fetch(QDRANT_HOST + '/collections/' + CHUNK_COLLECTION + '/points/scroll', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    // 给一个临时的 AbortController.signal
-    signal: (typeof AbortController !== 'undefined') ? new AbortController().signal : undefined
-  });
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  const d = await res.json();
-  const pts = (d.result && d.result.points) || [];
-  // 只取第一条；如果没结果返回 null
-  return pts.length ? pts[0].payload : null;
+  // 调用 api.chunk（见 useNeo4j.js），它内部 fetch('/api/chunk?id=..&ws=..')
+  const d = await api.chunk(chunkId, ws);
+  // 后端返回 { payload } 或 { payload: null }；没有内容时返回 null
+  return (d && d.payload) ? d.payload : null;
 }
 
 

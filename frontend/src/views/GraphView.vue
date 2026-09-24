@@ -131,13 +131,11 @@
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 // vue-router 4：useRoute (响应式 route 对象) / useRouter (跳转)
 import { useRoute, useRouter } from 'vue-router';
-// Neo4j 的 Bolt JS 客户端（neo4j.int() 用于传大整数）
-import neo4j from 'neo4j-driver';
 // vis-network 的独立构建：DataSet（高效数据集合）+ Network（canvas 渲染）
 import { DataSet, Network } from 'vis-network/standalone/esm/vis-network';
 
-// 从 composables/useNeo4j.js 引入 WS_META / getDriver / wsMeta
-import { WS_META, getDriver, wsMeta } from '../composables/useNeo4j.js';
+// 从 composables/useNeo4j.js 引入 WS_META / wsMeta / api（统一数据库访问，后端代理）
+import { WS_META, wsMeta, api } from '../composables/useNeo4j.js';
 // 从 composables/useLightragApi.js 引入 fetchChunk / splitSep / openOriginal
 import { fetchChunk, splitSep, openOriginal } from '../composables/useLightragApi.js';
 
@@ -241,7 +239,6 @@ let _allNodeIds = [];
 let _allEdgeIds = [];
 
 // vis-network 实例 / DataSet（受 Vue 状态管理会出错时用 ref 让其兼容）
-let driver = null;
 let net = null;
 let nodesDS = null;
 let edgesDS = null;
@@ -403,19 +400,17 @@ async function switchWorkspace() {
 }
 
 // loadTypes(label) —— 拿 label 这个 workspace 下所有 entity_type（按字母升序）
+// 数据改由后端 api-bridge 从 Neo4j 查询（api.types），前端不再直连数据库。
 async function loadTypes(label) {
-  const session = driver.session({ database: 'neo4j' });
-  try {
-    const res = await session.run(
-      'MATCH (n:`' + label + '`) RETURN DISTINCT coalesce(n.entity_type, "其他") AS t ORDER BY t');
-    typeList.value = res.records.map(r => r.get('t'));
-    // 默认全选：进入子图所有实体类型可见
-    selectedTypes.value = typeList.value.slice();
-    // 给每个 type 分配一个颜色（用 colorFor 与节点同源）
-    const colors = {};
-    typeList.value.forEach(t => { colors[t] = colorFor(t); });
-    typeColors.value = colors;
-  } finally { await session.close(); }
+  // 后端返回该 workspace 的去重实体类型列表（如 ["人物","地点","组织"]）
+  const types = await api.types(label);
+  typeList.value = types;
+  // 默认全选：进入子图所有实体类型可见
+  selectedTypes.value = typeList.value.slice();
+  // 给每个 type 分配一个颜色（用 colorFor 与节点同源，颜色逻辑仍在前端，无敏感）
+  const colors = {};
+  typeList.value.forEach(t => { colors[t] = colorFor(t); });
+  typeColors.value = colors;
 }
 
 /* ============================================================
@@ -539,71 +534,38 @@ function toggleRel() {
 }
 
 /* ============================================================
- * 图查询：从 Neo4j 拉节点 + 关系
- * ------------------------------------------------------------
- * loadGraph(searchText) 是入口，searchText 非空时走 radialFetch
- * （BFS 中心向外扩），否则按"度数排序取前 limit"拿全图核心节点。
+ * 图查询入口（两种模式）：
+ *   - 有 searchText → 径向 k 跳搜索（api.search），后端完成 BFS 展开
+ *   - 无 searchText → 全图模式，按度数取核心节点（api.graph）
+ * 数据改由后端 api-bridge 从 Neo4j 查询，前端不再直连数据库。
  * ============================================================ */
 async function loadGraph(searchText) {
-  const label = ws.value;
   const limit = limitNum.value;
   loading.value = true;
   const t0 = performance.now();
   try {
-    const session = driver.session({ database: 'neo4j' });
-    let nodes, edges, centerIds = [];
-    try {
-      if (searchText) {
-        // 搜索模式：径向 k 跳展开
-        const res = await radialFetch(session, label, searchText, limit, hops.value);
-        nodes = res.nodes; edges = res.edges; centerIds = res.centerIds;
-      } else {
-        // 全图模式：按度数取前 N
-        centerId.value = null;
-        // OPTIONAL MATCH 计算度数（兼容所有 Neo4j 版本，不依赖 count { ... } 5.x 语法）
-        // 先排除 deg=0/1 的孤立/叶子节点，再按度数降序
-        const q1 = 'MATCH (n:`' + label + '`) ' +
-          'WHERE ($typeFs = [] OR coalesce(n.entity_type,"其他") IN $typeFs) ' +
-          'OPTIONAL MATCH (n)-[r]-() ' +
-          'WITH n, count(r) AS deg ' +
-          'WHERE deg >= 2 ' +
-          'ORDER BY deg DESC, n.entity_id ' +
-          'LIMIT $limit ' +
-          'RETURN id(n) AS id, n.entity_id AS name, coalesce(n.entity_type,"其他") AS type, ' +
-          'n.description AS descr, coalesce(n.source_id,"") AS src, coalesce(n.file_path,"") AS fp, ' +
-          'properties(n) AS props, deg';
-        const r1 = await session.run(q1, { typeFs: typeFs.value, limit: neo4j.int(limit) });
-        nodes = r1.records.map(r => ({
-          id: r.get('id').toNumber(), name: r.get('name') || '(未命名)',
-          type: r.get('type'), descr: r.get('descr') || '',
-          src: r.get('src') || '', fp: r.get('fp') || '',
-          props: r.get('props') || {}
-        }));
-        if (nodes.length) {
-          // 在选中的节点之间查关系
-          const ids = nodes.map(n => n.id);
-          const q2 = 'UNWIND $ids AS i ' +
-            'MATCH (a)-[r]->(b) WHERE id(a) = i AND id(b) IN $ids ' +
-            'WITH id(a) AS s, id(b) AS t, collect(coalesce(r.description, type(r))) AS ds, ' +
-            'collect(coalesce(r.keywords,"")) AS kws, ' +
-            'collect(coalesce(r.source_id,"")) AS srcs, collect(coalesce(r.file_path,"")) AS fps ' +
-            'RETURN s, t, ds, kws, srcs, fps';
-          const r2 = await session.run(q2, { ids });
-          edges = r2.records.map(r => ({
-            s: r.get('s').toNumber(), t: r.get('t').toNumber(), ds: r.get('ds'),
-            kws: r.get('kws'), srcs: r.get('srcs'), fps: r.get('fps')
-          }));
-        } else edges = [];
-      }
-    } finally { await session.close(); }
-    renderGraph(nodes, edges, centerIds);
+    let result;
+    if (searchText) {
+      // 搜索模式：径向 k 跳展开，数据由后端 api-bridge 查询
+      // api.search(workspace, 关键词, { hops: 跳数, cap: 节点上限, types: 类型筛选 })
+      result = await api.search(ws.value, searchText, {
+        hops: hops.value, cap: limit, types: typeFs.value
+      });
+    } else {
+      // 全图模式：按度数取前 N，数据由后端 api-bridge 查询
+      // api.graph(workspace, { limit: 节点上限, types: 类型筛选 })
+      centerId.value = null;
+      result = await api.graph(ws.value, { limit, types: typeFs.value });
+    }
+    // 后端返回 { nodes, edges, centerIds }，与 renderGraph 接口一致
+    renderGraph(result.nodes, result.edges, result.centerIds || []);
     const ms = Math.round(performance.now() - t0);
-    if (searchText && !nodes.length) {
+    if (searchText && !result.nodes.length) {
       setStatus(true, '未找到匹配实体（仅支持名称子串）');
     } else {
-      const pre = centerIds.length ? ('中心 ' + centerIds.length + ' · ') : '';
+      const pre = result.centerIds?.length ? ('中心 ' + result.centerIds.length + ' · ') : '';
       const tf = selectedTypes.value.length ? ('已筛类型 ' + selectedTypes.value.length + ' 种 · ') : '';
-      setStatus(true, tf + pre + '节点 ' + nodes.length + ' · 关系 ' + edges.length + ' · 加载耗时 ' + ms + 'ms');
+      setStatus(true, tf + pre + '节点 ' + result.nodes.length + ' · 关系 ' + result.edges.length + ' · 加载耗时 ' + ms + 'ms');
     }
   } catch (err) {
     console.error(err);
@@ -611,151 +573,26 @@ async function loadGraph(searchText) {
   } finally { loading.value = false; }
 }
 
-// 辐射状 k 跳搜索：中心按名称匹配（不受类型筛选），邻居按类型筛选
-async function radialFetch(session, label, kw, cap, hopsVal) {
-  const typeFs = typeFs.value;
-  // 1) 找中心节点（按名称子串匹配，取最小的 3 个）
-  const r0 = await session.run(
-    'MATCH (n:`' + label + '`) WHERE n.entity_id CONTAINS $kw ' +
-    'RETURN id(n) AS id, n.entity_id AS name, coalesce(n.entity_type,"其他") AS type, ' +
-    'n.description AS descr, coalesce(n.source_id,"") AS src, coalesce(n.file_path,"") AS fp, ' +
-    'properties(n) AS props ' +
-    'ORDER BY size(n.entity_id) LIMIT 3', { kw });
-  const centers = r0.records.map(r => ({
-    id: r.get('id').toNumber(), name: r.get('name') || '(未命名)',
-    type: r.get('type'), descr: r.get('descr') || '',
-    src: r.get('src') || '', fp: r.get('fp') || '',
-    props: r.get('props') || {}
-  }));
-  if (!centers.length) return { nodes: [], edges: [], centerIds: [] };
-
-  const nodeMap = new Map();
-  centers.forEach(n => nodeMap.set(n.id, n));
-  const seen = new Set(centers.map(n => n.id));
-  const edgeMap = new Map();
-  let frontier = centers.map(n => n.id);
-  // 2) BFS 一圈一圈扩张，最多 hops 跳、最多 cap 个节点
-  for (let h = 1; h <= hopsVal && frontier.length && seen.size < cap; h++) {
-    const r1 = await session.run(
-        'MATCH (a)-[r]-(b:`' + label + '`) WHERE id(a) IN $frontier AND NOT id(b) IN $seen ' +
-        'AND ($typeFs = [] OR coalesce(b.entity_type,"其他") IN $typeFs) ' +
-        'RETURN DISTINCT id(b) AS id, b.entity_id AS name, coalesce(b.entity_type,"其他") AS type, ' +
-        'b.description AS descr, coalesce(b.source_id,"") AS src, coalesce(b.file_path,"") AS fp, ' +
-        'properties(b) AS props LIMIT $cap',
-        { frontier, seen: Array.from(seen), typeFs, cap: neo4j.int(Math.max(cap - seen.size, 1)) });
-    const newIds = [];
-    r1.records.forEach(rec => {
-      const id = rec.get('id').toNumber();
-      if (!nodeMap.has(id)) {
-        nodeMap.set(id, {
-          id, name: rec.get('name') || '(未命名)', type: rec.get('type'),
-          descr: rec.get('descr') || '', src: rec.get('src') || '', fp: rec.get('fp') || '',
-          props: rec.get('props') || {}
-        });
-        newIds.push(id);
-      }
-    });
-    newIds.forEach(id => seen.add(id));
-    if (newIds.length) {
-      // 在"见过的全部节点"之间查关系
-      const r2 = await session.run(
-        'MATCH (a)-[r]->(b) WHERE id(a) IN $seen AND id(b) IN $seen ' +
-        'RETURN id(r) AS rid, id(a) AS s, id(b) AS t, coalesce(r.description, type(r)) AS d, ' +
-        'coalesce(r.keywords,"") AS kw, coalesce(r.source_id,"") AS src, coalesce(r.file_path,"") AS fp',
-        { seen: Array.from(seen) });
-      r2.records.forEach(rec => {
-        const rid = rec.get('rid').toNumber();
-        if (!edgeMap.has(rid)) edgeMap.set(rid, {
-          s: rec.get('s').toNumber(), t: rec.get('t').toNumber(), ds: [rec.get('d') || ''],
-          kws: [rec.get('kw') || ''], srcs: [rec.get('src') || ''], fps: [rec.get('fp') || '']
-        });
-      });
-    }
-    frontier = newIds;
-  }
-  return { nodes: Array.from(nodeMap.values()), edges: Array.from(edgeMap.values()), centerIds: centers.map(n => n.id) };
-}
-
 // 以被点击节点为中心做 k 跳展开（邻居同样吃类型筛选）
+// 数据改由后端 api-bridge 从 Neo4j 查询，前端不再直连数据库。
+// api.expand(workspace, nodeId, { hops: 跳数, types: 类型筛选 })
 async function expandFromNode(nodeId, hopsVal) {
-  const label = ws.value;
   loading.value = true;
   const t0 = performance.now();
   try {
-    const session = driver.session({ database: 'neo4j' });
-    let center = null;
-    const nodeMap = new Map();
-    const edgeMap = new Map();
-    const typeFs = typeFs.value;
-    try {
-      // 取中心节点的所有信息
-      const rc = await session.run(
-        'MATCH (n:`' + label + '`) WHERE id(n)=$id ' +
-        'RETURN id(n) AS id, n.entity_id AS name, coalesce(n.entity_type,"其他") AS type, ' +
-        'n.description AS descr, coalesce(n.source_id,"") AS src, coalesce(n.file_path,"") AS fp, ' +
-        'properties(n) AS props',
-        { id: neo4j.int(nodeId) });
-      if (!rc.records.length) { setStatus(false, '节点不存在'); return; }
-      const rec = rc.records[0];
-      center = {
-        id: nodeId, name: rec.get('name') || '(未命名)',
-        type: rec.get('type'), descr: rec.get('descr') || '',
-        src: rec.get('src') || '', fp: rec.get('fp') || '',
-        props: rec.get('props') || {}
-      };
-      nodeMap.set(nodeId, center);
-      const seen = new Set([nodeId]);
-      let frontier = [nodeId];
-      // BFS 扩展邻居（每轮按 frontier 集合查询 NOT IN seen 的邻居）
-      for (let h = 1; h <= hopsVal && frontier.length; h++) {
-        const r1 = await session.run(
-          'MATCH (a)-[r]-(b) WHERE id(a) IN $frontier AND NOT id(b) IN $seen ' +
-          'AND ($typeFs = [] OR coalesce(b.entity_type,"其他") IN $typeFs) ' +
-          'RETURN DISTINCT id(b) AS id, b.entity_id AS name, coalesce(b.entity_type,"其他") AS type, ' +
-          'b.description AS descr, coalesce(b.source_id,"") AS src, coalesce(b.file_path,"") AS fp, ' +
-          'properties(b) AS props',
-          { frontier, seen: Array.from(seen), typeFs });
-        const newIds = [];
-        r1.records.forEach(rec2 => {
-          const id = rec2.get('id').toNumber();
-          if (!nodeMap.has(id)) {
-            nodeMap.set(id, {
-              id, name: rec2.get('name') || '(未命名)', type: rec2.get('type'),
-              descr: rec2.get('descr') || '', src: rec2.get('src') || '', fp: rec2.get('fp') || '',
-              props: rec2.get('props') || {}
-            });
-            newIds.push(id);
-          }
-        });
-        newIds.forEach(id => seen.add(id));
-        if (newIds.length) {
-          // 取所有"在已见集合内"的关系
-          const r2 = await session.run(
-            'MATCH (a)-[r]->(b) WHERE id(a) IN $seen AND id(b) IN $seen ' +
-            'RETURN id(r) AS rid, id(a) AS s, id(b) AS t, coalesce(r.description, type(r)) AS d, ' +
-            'coalesce(r.keywords,"") AS kw, coalesce(r.source_id,"") AS src, coalesce(r.file_path,"") AS fp',
-            { seen: Array.from(seen) });
-          r2.records.forEach(rec2 => {
-            const rid = rec2.get('rid').toNumber();
-            if (!edgeMap.has(rid)) edgeMap.set(rid, {
-              s: rec2.get('s').toNumber(), t: rec2.get('t').toNumber(), ds: [rec2.get('d') || ''],
-              kws: [rec2.get('kw') || ''], srcs: [rec2.get('src') || ''], fps: [rec2.get('fp') || '']
-            });
-          });
-        }
-        frontier = newIds;
-      }
-    } finally { await session.close(); }
-    const nodes = Array.from(nodeMap.values());
-    const edges = Array.from(edgeMap.values());
-    centerId.value = nodeId;   // 记住中心，类型筛选变化时可复现
-    renderGraph(nodes, edges, [nodeId]);
+    const result = await api.expand(ws.value, nodeId, {
+      hops: hopsVal, types: typeFs.value
+    });
+    centerId.value = nodeId;  // 记住中心，类型筛选变化时可复现
+    renderGraph(result.nodes, result.edges, [nodeId]);
     showNodeSide(nodeId, true);
     if (net) net.focus(nodeId, { scale: 0.8, animation: { duration: 400 } });
     const ms = Math.round(performance.now() - t0);
-    const pre = typeFs.length ? ('已筛类型 ' + typeFs.length + ' 种 · ') : '';
-    setStatus(true, pre + '以「' + center.name + '」为中心 ' + hopsVal + ' 跳 · 节点 ' +
-      nodes.length + ' · 关系 ' + edges.length + ' · 加载耗时 ' + ms + 'ms');
+    const pre = typeFs.value.length ? ('已筛类型 ' + typeFs.value.length + ' 种 · ') : '';
+    const centerNode = result.nodes.find(n => n.id === nodeId);
+    const centerName = centerNode ? centerNode.name : '未知';
+    setStatus(true, pre + '以「' + centerName + '」为中心 ' + hopsVal + ' 跳 · 节点 ' +
+      result.nodes.length + ' · 关系 ' + result.edges.length + ' · 加载耗时 ' + ms + 'ms');
   } catch (err) {
     console.error(err);
     setStatus(false, '展开失败: ' + (err.message || err));
@@ -1139,14 +976,13 @@ function showNodeSide(id, isCenter) {
  * 生命周期
  * ============================================================ */
 onMounted(async () => {
+  // 初始化图谱组件状态，不再持有 Neo4j driver（数据库访问已移至后端）
   net = null; nodesDS = null; edgesDS = null;
   try {
-    driver = getDriver();
-    await driver.getServerInfo();          // 试连一次，确认 Neo4j 在
     setStatus(true, '图谱数据已就绪');
     await switchWorkspace();
   } catch (err) {
-    setStatus(false, '连接失败: ' + (err.message || err));
+    setStatus(false, '加载失败: ' + (err.message || err));
   }
 });
 

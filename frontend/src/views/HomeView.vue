@@ -111,9 +111,8 @@ import { ref, computed, onMounted } from 'vue';
 
 // 从 composables/useNeo4j.js 引入：
 //   WS_META            —— 7 个 workspace 的展示元数据
-//   listWorkspaceCounts() —— 异步查询，返回 { nodes, rels }
-//   getDriver()        —— Neo4j Bolt 单例驱动
-import { WS_META, listWorkspaceCounts, getDriver } from '../composables/useNeo4j.js';
+//   api                —— 后端 api-bridge 封装，不再直连 Neo4j
+import { WS_META, api } from '../composables/useNeo4j.js';
 
 /* ============================================================
  * 响应式状态（原 Vue 2 data()）
@@ -220,16 +219,14 @@ function animateCount(from, to, setter) {
  * ------------------------------------------------------------
  * 流程：
  *   1) 设置 document.title
- *   2) getServerInfo() 测试 Neo4j 是否连得上
- *   3) listWorkspaceCounts() 拿所有 workspace 的节点/关系数
- *   4) 把数字"动画滚"到目标值
+ *   2) api.counts() 拿所有 workspace 的节点/关系数（由后端查询 Neo4j）
+ *   3) 把数字"动画滚"到目标值
  * ============================================================ */
 onMounted(async () => {
   document.title = '知识图谱问答';
   try {
-    await getDriver().getServerInfo();   // 试连一下 Neo4j
     connected.value = true;
-    const s = await listWorkspaceCounts();
+    const s = await api.counts();
     // s 可能是 { nodes, rels }，做兼容
     counts.value = s && s.nodes ? s.nodes : s;
     rels.value = (s && s.rels) ? s.rels : {};

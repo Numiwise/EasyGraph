@@ -17,11 +17,17 @@ import path from 'node:path';
 // 开发期代理：浏览器经 vite 反代访问后端，避免 CORS
 //   /llm  → SiliconFlow（LLM 反代，旧版由 nginx 注入 Authorization；本地 dev 用 .env）
 //   /kb   → 数据原文（兼容 nginx 旧行为，dev 时用本地静态）
+//   /api  → 后端 api-bridge（9630端口，前端不再直连 Neo4j/Qdrant）
 const backendProxies = {
   '/llm': {
     target: 'https://api.siliconflow.cn/v1',
     changeOrigin: true,
     rewrite: (p) => p.replace(/^\/llm/, '')
+  },
+  '/api': {
+    target: 'http://127.0.0.1:9630',
+    changeOrigin: true,
+    rewrite: (p) => p.replace(/^\/api/, '/api')
   }
 };
 
@@ -53,8 +59,8 @@ export default defineConfig({
         manualChunks: {
           'vendor-vue': ['vue', 'vue-router'],
           'vendor-ep': ['element-plus', '@element-plus/icons-vue'],
-          'vendor-vis': ['vis-network', 'vis-data'],
-          'vendor-neo4j': ['neo4j-driver']
+          'vendor-vis': ['vis-network', 'vis-data']
+          // neo4j-driver 已从浏览器端移除（图谱数据改由后端 api-bridge 查询）
         }
       }
     }

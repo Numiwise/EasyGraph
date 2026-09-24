@@ -127,7 +127,46 @@ services:
       postgres:
         condition: service_healthy
 
-  # ========== 图谱可视化大屏（Vue3 + Vite，浏览器直连 Neo4j bolt） ==========
+  # ========== 后端 API 网关（FastAPI，轻量化，隔离前端与数据库直连） ==========
+  # 职责：
+  #   - 前端浏览器不再直连 Neo4j bolt:// 和 Qdrant http://（避免 JS 暴露数据库地址/密码）
+  #   - 前端只访问 /api/*，nginx 反代到本服务（同一容器网络，无 CORS）
+  #   - 本服务持有 Neo4j/Qdrant 凭证（通过环境变量注入，不在前端代码里）
+  #   - 仅暴露端口 9630 绑定 127.0.0.1（不暴露到宿主机网络，对外不可访问）
+  api-bridge:
+    image: python:3.11-slim
+    container_name: lightrag-api-bridge
+    restart: unless-stopped
+    working_dir: /app
+    # 单行 command：pip 安装依赖后启动 uvicorn（bash -c 避免 PowerShell ; 注入问题）
+    command: ["bash", "-c", "pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt && exec uvicorn backend.main:app --host 0.0.0.0 --port 9630 --proxy-headers"]
+    volumes:
+      # .env 包含 NEO4J_PASSWORD 等敏感信息，只读挂载
+      - ./.env:/app/.env:ro
+      # backend/ 目录包含后端网关代码（config.py, db.py, queries.py 等）
+      - ./backend:/app/backend:ro
+      # requirements.txt 包含 api-bridge 的 Python 依赖
+      - ./requirements.txt:/app/requirements.txt:ro
+    environment:
+      # Neo4j 连接（展示版数据库，bolt://neo4j-display:7687）
+      NEO4J_URI: "bolt://neo4j-display:7687"
+      NEO4J_USER: "neo4j"
+      NEO4J_PASSWORD: "${NEO4J_PASSWORD}"
+      # Qdrant 连接（compose 内部网络，服务名=qdrant）
+      QDRANT_URL: "http://qdrant:6333"
+      QDRANT_CHUNK_COLLECTION: "lightrag_vdb_chunks_baai_bge_m3_1024d"
+    ports:
+      - "127.0.0.1:9630:9630"   # 仅绑定本地环回，外网无法直接访问
+    depends_on:
+      neo4j-display:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+
+  # ========== 图谱可视化大屏（Vue3 + Vite，通过 nginx 反代访问后端 api-bridge） ==========
+  # 安全架构：
+  #   浏览器 → nginx:80 → api-bridge:9630 → neo4j-display:7687 / qdrant:6333
+  #   浏览器不再直连数据库（Neo4j bolt / Qdrant HTTP），凭证只存在于 api-bridge 容器内。
   #   部署方式一（推荐，秒启动）：bind 挂载本地已构建的 ./dist 到 nginx 静态目录
   #     前置：先 npm install && npm run build 生成 ./dist
   #     启动：docker compose up -d webviz
@@ -143,6 +182,10 @@ services:
         condition: service_started
     ports:
       - "5006:80"   # 图谱可视化大屏（http://localhost:5006）
+    # 把 LLM key 从 .env 注入容器，供 nginx 模板 envsubst（见下）使用。
+    # 安全：key 走 .env（不入 git），不在代码里写死。
+    environment:
+      LLM_BINDING_API_KEY: "${LLM_BINDING_API_KEY:-}"
     volumes:
       # 前端 SPA 静态产物（Vue3 + Vite 构建后 = dist）
       - ./dist:/usr/share/nginx/html:ro
@@ -153,8 +196,12 @@ services:
       # 自定义 nginx 配置：
       #   nginx-main.conf  → 主配置（user root，规避挂载文件 0600 权限问题）
       #   nginx-webviz.conf → 站点配置（暴露 /kb/ 纯文本目录 + SPA 回落）
+      #     * 以 .template 挂在 /etc/nginx/templates/ 下，nginx 官方 entrypoint 会在
+      #       启动时对其做 envsubst（把 ${LLM_BINDING_API_KEY} 替换为容器环境变量的值），
+      #       再渲染出 /etc/nginx/conf.d/webviz.conf。这样真实 LLM key 只需在 .env 里
+      #       提供，代码里不写死。
       - ./nginx/nginx-main.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/nginx-webviz.conf:/etc/nginx/conf.d/webviz.conf:ro
+      - ./nginx/nginx-webviz.conf:/etc/nginx/templates/webviz.conf.template:ro
 
   # ========== LightRAG 服务（7 个图谱 = 6 分图 + 1 总图） ==========
   # 机制：LightRAG v1.5.6 一个容器实例固定使用一个 WORKSPACE；存储层按工作区
@@ -207,28 +254,29 @@ services:
       HOST: "0.0.0.0"
       PORT: "9621"
       # LLM（SiliconFlow DeepSeek-V3，OpenAI 兼容协议）
+      # 安全：key 从 .env 读取（.env 不入 git），不要在代码里硬编码真实 key。
       LLM_BINDING: "openai"
       LLM_BINDING_HOST: "https://api.siliconflow.cn/v1"
-      LLM_BINDING_API_KEY: "sk-tnfbxqnjsiqbwbsdhikypadmnwiuzrvtjwcrjubwgyfdhwsi"
+      LLM_BINDING_API_KEY: "${LLM_BINDING_API_KEY:?请在 .env 中设置 LLM_BINDING_API_KEY}"
       LLM_MODEL: "deepseek-ai/DeepSeek-V3"
       # Embedding（保持不变）
       EMBEDDING_BINDING: "openai"
       EMBEDDING_BINDING_HOST: "https://api.siliconflow.cn/v1"
-      EMBEDDING_BINDING_API_KEY: "sk-tnfbxqnjsiqbwbsdhikypadmnwiuzrvtjwcrjubwgyfdhwsi"
+      EMBEDDING_BINDING_API_KEY: "${EMBEDDING_BINDING_API_KEY:?请在 .env 中设置 EMBEDDING_BINDING_API_KEY}"
       EMBEDDING_MODEL: "BAAI/bge-m3"
       EMBEDDING_DIM: "1024"
       # Qdrant 连接（compose 内部网络，服务名=qdrant）
       QDRANT_URL: "http://qdrant:6333"
-      # Neo4j 连接
+      # Neo4j 连接（密码从 .env 注入，避免硬编码）
       NEO4J_URI: "bolt://neo4j:7687"
       NEO4J_USERNAME: "neo4j"
-      NEO4J_PASSWORD: "LightRAG2026neo4j"
-      # PostgreSQL 连接（compose 内部网络，服务名=postgres）
+      NEO4J_PASSWORD: "${NEO4J_PASSWORD}"
+      # PostgreSQL 连接（compose 内部网络，服务名=postgres，密码从 .env 注入）
       POSTGRES_HOST: "postgres"
       POSTGRES_PORT: "5432"
-      POSTGRES_USER: "lightrag"
-      POSTGRES_PASSWORD: "LightRAG2026pg"
-      POSTGRES_DATABASE: "lightrag"
+      POSTGRES_USER: "${POSTGRES_USER:-lightrag}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      POSTGRES_DATABASE: "${POSTGRES_DATABASE:-lightrag}"
       # 存储后端切换：KV / DocStatus → PostgreSQL（替换默认 JSON 文件存储）
       LIGHTRAG_KV_STORAGE: "PGKVStorage"
       LIGHTRAG_DOC_STATUS_STORAGE: "PGDocStatusStorage"
