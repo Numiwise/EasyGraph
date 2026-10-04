@@ -35,13 +35,15 @@ services:
       - ./nginx/nginx-main-cloud.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/nginx-cloud-webviz.conf:/etc/nginx/templates/webviz.conf.template:ro
       - ./nginx/nginx-entrypoint.sh:/docker-entrypoint.d/entrypoint.sh:ro
+      # fix-auth.js：注入到 LightRAG HTML 末尾的 JS 文件
+      # 修复 1.5.7 SPA auth 流程 bug（详细见 scripts/cloud/fix-auth.js 顶部注释）
+      - ./fix-auth.js:/etc/nginx/fix-auth/fix-auth.js:ro
       # 前端 dist
       - ./dist:/usr/share/nginx/html:ro
       # 原文资料
       - ./data/inputs:/kb:ro
     environment:
       - SERVER_NAME=${SERVER_NAME:-$HOSTNAME}
-      - LLM_BINDING_API_KEY=${LLM_BINDING_API_KEY:-}
       - BRIDGE_TOKEN=${BRIDGE_TOKEN}
     depends_on:
       - webviz
