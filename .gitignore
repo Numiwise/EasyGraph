@@ -48,3 +48,19 @@ desktop.ini
 # data/inputs/*/__parsed__/         # 已解析 markdown
 # data/rag_storage/                 # LightRAG 工作目录
 # data/lightrag-volumes/            # Docker 卷挂载根
+
+# ---- 临时文件 / 副本 / 重命名残留（不污染 git 历史） ----
+# 早期 chunking 脚本切出来的副本（_001/_001_001/_002 等）
+data/inputs/*/__parsed__/*_001.md
+data/inputs/*/__parsed__/*_001_001.md
+data/inputs/*/__parsed__/*_001_001_001.md
+data/inputs/*/__parsed__/*_001_001_001_001.md
+data/inputs/*/__parsed__/*_001_001_002.md
+data/inputs/*/__parsed__/*_001_002.md
+data/inputs/*/__parsed__/*_001_002_001.md
+data/inputs/*/__parsed__/*_002.md
+data/inputs/*/__parsed__/*_003.md
+data/inputs/*/__parsed__/*_004.md
+data/inputs/demo_show/             # 早期 demo 分支残留数据
+_tmp_*                            # 上传时临时重命名残留
+*_tmp_*.md                          # 含 _tmp_ 前缀的 md 文件

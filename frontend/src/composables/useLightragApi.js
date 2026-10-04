@@ -65,12 +65,23 @@ import { api } from './useNeo4j.js';
 export async function streamRag(ws, query, opts = {}, onToken) {
   // response_type 是给 LLM 的"风格"指令。后端 Pydantic 模型规定该字段 <= 256 字符，
   // 太长会触发 422 校验失败，所以这里先校验一下再发请求。
+  // 重要：必须显式禁止英文 / 禁止 References 区块，否则 lightrag 默认 prompt 会触发英文回复 + 末尾 References 列表。
   const responseType = opts.responseType || (
-    '中文直接回答。仅依据所给检索资料整理输出，忠实原文事实，' +
+    '必须用中文回答。仅依据所给检索资料整理输出，忠实原文事实，' +
     '严禁编造、严禁上网或凭空补充内容；开门见山，分点论据；' +
-    '引用用行内[1][2]，禁止REFxx；不输出思考块、不写开场白；文末不要References清单。'
+    '引用用行内[1][2]，禁止REFxx；不输出思考块、不写开场白、不写英文；' +
+    '文末不要References清单，禁止任何参考列表小标题。'
   );
   if (responseType.length > 256) throw new Error('response_type 超过 256 字符上限，请精简');
+
+  // user_prompt 完全覆盖 lightrag 默认 system prompt，强制中文 + 行内引用 + 禁 References
+  const userPrompt = opts.userPrompt || (
+    '你是知识图谱问答助理。' +
+    '严格使用中文回答。仅依据下方"Context"中的检索资料回答问题，不编造、不上网、不补充外部知识。' +
+    '输出格式：开门见山，分点论述，关键事实后用行内[1][2]标注引用。' +
+    '禁止输出：英文内容、思考块、欢迎语、"好的"等开场白、' +
+    '任何"References"/"参考"小标题列表、"REFxx"格式引用。'
+  );
 
   // 拼装请求体。和 queryData 几乎一样，多了一个 include_chunk_content: true，
   // 让 chunks 里附带原文（方便前端做"引用段落"展开）。
@@ -80,6 +91,7 @@ export async function streamRag(ws, query, opts = {}, onToken) {
     include_references: true,
     include_chunk_content: true,
     response_type: responseType,
+    user_prompt: userPrompt,
     top_k: opts.topK != null ? opts.topK : 10,
     chunk_top_k: opts.chunkTopK != null ? opts.chunkTopK : 5
   };
