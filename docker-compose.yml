@@ -1,5 +1,5 @@
 # ============================================================
-# 免 build 部署：LightRAG（官方镜像） + Neo4j + Qdrant + PostgreSQL
+# EasyGraph 部署：LightRAG（官方镜像） + Neo4j + Qdrant + PostgreSQL
 # ------------------------------------------------------------
 # 镜像策略：
 #   - LightRAG 使用 ghcr.1ms.run 国内 ghcr 加速域名（免本地 build）
@@ -14,6 +14,10 @@
 #   - Qdrant Dashboard: http://localhost:6333/dashboard
 #   - pgAdmin (PG)   : http://localhost:5050
 # ============================================================
+
+# 显式设置 compose 项目名（覆盖默认的父目录名），用于跨机器迁移时数据卷前缀一致
+name: easygraph
+
 services:
   # ========== Neo4j 图数据库（完整版，LightRAG 写入） ==========
   neo4j:

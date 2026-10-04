@@ -17,8 +17,8 @@
 ## 1. 克隆与配置
 
 ```bash
-git clone https://github.com/<your-org>/lightrag-deploy.git
-cd lightrag-deploy
+git clone https://github.com/<your-org>/easygraph.git
+cd easygraph
 cp .env.example .env
 ```
 

@@ -1,4 +1,4 @@
-# LightRAG · 知识图谱问答（Multi-Workspace Demo）
+# EasyGraph · 知识图谱问答（Multi-Workspace Demo）
 
 > 一个用 [LightRAG](https://github.com/HKUDS/LightRAG) + Neo4j + Qdrant + PostgreSQL 搭建的
 > **「7 个工作区 = 1 张总图 + 6 张专题子图」** 的知识图谱可视化与 AI 问答系统。
@@ -25,7 +25,7 @@
 
 ```bash
 git clone <your-repo>
-cd lightrag-deploy
+cd easygraph
 cp .env.example .env
 # 编辑 .env，至少填入你的 LLM_BINDING_API_KEY 与 NEO4J_PASSWORD / POSTGRES_PASSWORD
 ```
@@ -115,7 +115,7 @@ python -m pytest tests/ -v
 ## 目录结构（专业布局）
 
 ```
-lightrag-deploy/
+easygraph/
 ├── README.md                 ← 你正在看
 ├── docker-compose.yml        ← Docker 编排（neo4j / qdrant / pg / 7×LightRAG / webviz / pgAdmin）
 ├── .env.example              ← 配置模板（不含真实密钥）

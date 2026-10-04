@@ -146,11 +146,11 @@ const POLISH_SAFE = '中文直接回答。仅依据所给检索资料整理输�
 
 ```bash
 # 备份 Neo4j 数据
-docker run --rm -v lightrag-deploy_neo4j_data:/data -v $(pwd)/backup:/backup \
+docker run --rm -v easygraph_neo4j_data:/data -v $(pwd)/backup:/backup \
     alpine tar czf /backup/neo4j.tar.gz /data
 
 # 恢复
-docker run --rm -v lightrag-deploy_neo4j_data:/data -v $(pwd)/backup:/backup \
+docker run --rm -v easygraph_neo4j_data:/data -v $(pwd)/backup:/backup \
     alpine tar xzf /backup/neo4j.tar.gz -C /
 
 # 备份 Qdrant：直接拷贝卷目录即可（Qdrant 格式稳定）

@@ -61,6 +61,12 @@ data/inputs/*/__parsed__/*_001_002_001.md
 data/inputs/*/__parsed__/*_002.md
 data/inputs/*/__parsed__/*_003.md
 data/inputs/*/__parsed__/*_004.md
+data/inputs/*/__parsed__/*_005.md
+data/inputs/*/__parsed__/*_006.md
+data/inputs/*/__parsed__/*_007.md
+data/inputs/*/__parsed__/*_008.md
+data/inputs/*/__parsed__/*_009.md
+data/inputs/*/__parsed__/*_010.md
 data/inputs/demo_show/             # 早期 demo 分支残留数据
 _tmp_*                            # 上传时临时重命名残留
 *_tmp_*.md                          # 含 _tmp_ 前缀的 md 文件

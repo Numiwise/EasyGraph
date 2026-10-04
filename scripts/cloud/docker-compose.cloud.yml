@@ -1,0 +1,97 @@
+# ============================================================
+# 腾讯云 CVM 部署版 docker-compose
+# ------------------------------------------------------------
+# 与原 docker-compose.yml 区别：
+#   1) webviz 端口绑 0.0.0.0:5006（公网可访问）
+#   2) 加 cloud-nginx 服务（公网反向代理到 webviz + api-bridge）
+#   3) 所有非 80/443 端口绑 127.0.0.1（不直接暴露）
+#   4) neo4j/qdrant/postgres 不暴露端口（容器内部访问）
+# ============================================================
+# 在云服务器上运行：
+#   docker compose -f docker-compose.yml -f docker-compose.cloud.yml up -d
+# ============================================================
+
+version: '3.8'
+
+services:
+  # ============================================================
+  # 公网反向代理（替代原来 webviz 直绑 5006）
+  # ============================================================
+  cloud-nginx:
+    image: nginx:alpine
+    container_name: lightrag-cloud-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # nginx 配置（与原 nginx/ 目录结构保持一致）
+      - ./nginx/nginx-main.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/nginx-cloud-webviz.conf:/etc/nginx/templates/webviz.conf.template:ro
+      # 前端 dist
+      - ./dist:/usr/share/nginx/html:ro
+      # 原文资料
+      - ./data/inputs:/kb:ro
+      # 证书（用 Let's Encrypt 自动签）
+      - ./nginx/certs:/etc/nginx/certs:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+    environment:
+      # 公网域名（无域名则保持 IP）
+      - SERVER_NAME=${SERVER_NAME:-$HOSTNAME}
+      LLM_BINDING_API_KEY: "${LLM_BINDING_API_KEY:-}"
+      BRIDGE_TOKEN: "${BRIDGE_TOKEN}"
+    depends_on:
+      - webviz
+      - api-bridge
+    networks:
+      - lightrag-net
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ============================================================
+  # webviz：端口只绑 127.0.0.1（公网不直接访问，只走 cloud-nginx 反代）
+  # ============================================================
+  webviz:
+    ports:
+      - "127.0.0.1:5006:80"
+
+  # ============================================================
+  # api-bridge：只绑 127.0.0.1
+  # ============================================================
+  api-bridge:
+    ports:
+      - "127.0.0.1:9630:9630"
+
+  # ============================================================
+  # Neo4j：端口 7474/7475/7687 全部删除（不能开放）
+  # 完整版 / display 都只能容器内访问
+  # ============================================================
+  neo4j:
+    ports: []  # 覆盖原 compose 里的端口映射
+  neo4j-display:
+    ports: []
+
+  # ============================================================
+  # Qdrant：删除 6333/6334 端口映射
+  # ============================================================
+  qdrant:
+    ports: []
+
+  # ============================================================
+  # Postgres：删除 5432 端口映射
+  # ============================================================
+  postgres:
+    ports: []
+
+  # ============================================================
+  # pgAdmin：删除 5050（管理工具不放公网）
+  # ============================================================
+  pgadmin:
+    ports: []
+
+networks:
+  lightrag-net:
+    driver: bridge

@@ -1,5 +1,37 @@
 # 更新日志
 
+## v2.2.0 — 2026-10-04
+
+**项目更名为 EasyGraph。**
+
+主要变更：
+
+### 项目
+- 应用名由 `lightrag-deploy` / `lightrag-visualize` 正式更名为 **EasyGraph**（gitee 仓库已同步改名）
+- Docker Compose 项目名显式指定 `name: easygraph`，数据卷前缀从 `lightrag-deploy_*` 改为 `easygraph_*`
+- 前端 `package.json` name 改为 `easygraph-webviz`，版本号升至 2.2.0
+- 浏览器标签页标题改为 "EasyGraph · 知识图谱问答"
+- 文档（README、quickstart、CHANGELOG、cloud-setup.sh）项目名引用统一更新
+
+### 不变项（确保兼容）
+- 底层 RAG 框架仍为 [LightRAG](https://github.com/HKUDS/LightRAG) v1.5.6（保留所有 `lightrag-*` 容器名、`/lightrag/*` API 路径、LightRAG 镜像拉取）
+- Neo4j 实体数据 / Qdrant collection / Postgres KV / 已抽取的 7 个 workspace 全部兼容，无需重抽
+
+---
+
+## v2.1.0 — 2026-09-30
+
+**7 workspace 抽取完成 + 展示端剪裁。**
+
+主要变更：
+- 总图 + 6 个专题子图全部抽取完成（0 fail、168 文件）
+- 显示端 Neo4j (`neo4j-display`) 通过 dump/load + clean_graph + merge_aliases 完成剪裁
+- 修复前端 AI 提问中文提示词（user_prompt 覆盖 LightRAG 默认英文 prompt）
+- gitee 仓库首次推送，SSH ed25519 认证通过
+- 腾讯云 CVM Docker 环境就绪
+
+---
+
 ## v1.0.0 — 2026-09-23
 
 **首次对外发布。**

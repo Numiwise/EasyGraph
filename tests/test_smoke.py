@@ -1,7 +1,7 @@
 """项目级烟雾测试：纯 Python，验证关键脚本与配置可被 import / parse / 读取。
 
 不依赖运行中的 Docker 服务。运行：
-    cd lightrag-deploy
+    cd easygraph
     python -m pytest tests/ -v
 """
 import json
