@@ -37,6 +37,25 @@ import { SEP, portOf } from '../utils/lightrag-config.js';
 // 这里仅用它的 chunk() 去取原文段落 —— 由后端 api-bridge 代理 Qdrant，前端不再直连。
 import { api } from './useNeo4j.js';
 
+/**
+ * isPublic() —— 判断前端当前是"直连模式"还是"公网反代模式"。
+ *   - 公网反代模式：当前 host 不是 127.0.0.1 / localhost（同源路径反代）
+ *   - 直连模式：本机开发，浏览器和 lightrag 实例在同一台机器
+ *
+ * 公网反代下，所有 lightrag 实例的 9621-9627 端口都暴露不出去（容器内 127.0.0.1 绑），
+ * 只能通过 nginx 反代到 /lightrag/<ws>/ 路径访问。
+ */
+export function isPublic() {
+  if (typeof window === 'undefined') return false;
+  const h = window.location.hostname;
+  return !(h === '127.0.0.1' || h === 'localhost' || h === '0.0.0.0');
+}
+
+/** 根据 ws + 是否公网环境，返回对应的 lightrag API base。 */
+export function lrBaseFor(ws) {
+  return isPublic() ? ('/lightrag/' + ws + '/') : ('http://127.0.0.1:' + portOf(ws) + '/');
+}
+
 /* ====== 工作区 → LightRAG 实例端口（集中配置） ======
  * 端口映射统一在 utils/lightrag-config.js 里维护（portOf(ws)）。
  * 这样改动端口只需要改一个地方。*/
@@ -97,7 +116,10 @@ export async function streamRag(ws, query, opts = {}, onToken) {
   };
 
   // 发起流式 POST。注意后端路径是 /query/stream，比非流式多了 /stream。
-  const res = await fetch('http://127.0.0.1:' + portOf(ws) + '/query/stream', {
+  // 同源走 /lightrag/<ws>/，由云端 nginx 反代到 lightrag 实例；
+  // 开发环境（127.0.0.1 直连）走原始端口。
+  const lrBase = lrBaseFor(ws);
+  const res = await fetch(lrBase + 'query/stream', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
@@ -176,7 +198,7 @@ export async function queryData(ws, query, opts = {}) {
     top_k: opts.topK != null ? opts.topK : 10,
     chunk_top_k: opts.chunkTopK != null ? opts.chunkTopK : 5
   };
-  const res = await fetch('http://127.0.0.1:' + portOf(ws) + '/query/data', {
+  const res = await fetch(lrBase + 'query/data', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

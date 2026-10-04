@@ -98,6 +98,31 @@
           </div>
         </div>
       </div>
+
+      <!-- 文档管理入口（方案 C）
+           跳转 LightRAG 官方 WebUI（/lightrag/<ws>/webui/）。
+           nginx 已在反代时自动注入 API Key，浏览器无需输入密码。
+           target="_blank" 新标签页打开，不覆盖大屏。 -->
+      <div class="docs-row">
+        <div class="docs-title">
+          <span class="docs-icon">📄</span>
+          <span>文档管理入口</span>
+          <span class="docs-subtitle">LightRAG 官方 UI · 上传 / 索引进度 / 重新处理</span>
+        </div>
+        <div class="docs-grid">
+          <a v-for="m in WS_META" :key="m.id"
+             :href="'/lightrag/' + m.id + '/webui/'"
+             target="_blank" rel="noopener"
+             class="doc-link"
+             :style="{ '--accent': m.color }">
+            <span class="bar" :style="{background: m.color}"></span>
+            <span class="doc-name">{{ m.name }}</span>
+            <span class="doc-badge" :style="{background: m.color}">{{ m.badge }}</span>
+            <span class="doc-go">打开 →</span>
+          </a>
+        </div>
+        <div class="docs-hint">已配置 nginx 自动注入 API Key，访问官方 UI 无需登录 · 支持文件上传 / 索引进度查看 / 文档重新处理</div>
+      </div>
     </div>
   </div>
 </template>
@@ -464,5 +489,112 @@ onMounted(async () => {
   background: rgba(255, 255, 255, .22);
   border-color: rgba(255, 255, 255, .4);
   padding: 3px 12px;
+}
+
+/* ------- 文档管理入口（LightRAG 官方 UI 跳转） ------- */
+.docs-row {
+  margin: 24px auto 8px;
+  max-width: 1280px;
+  padding: 0 28px;
+}
+.docs-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 800;
+  color: #2c3e6b;
+  margin-bottom: 12px;
+}
+.docs-icon { font-size: 18px; }
+.docs-subtitle {
+  font-size: 12px;
+  font-weight: 500;
+  color: #6b7280;
+}
+.docs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+/* 文档链接：胶囊风格 + 左侧色条 + 主题色 hover */
+.doc-link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px 10px 16px;
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(28, 39, 66, 0.12);
+  border-radius: 10px;
+  color: #1c2742;
+  text-decoration: none;
+  font-size: 13.5px;
+  font-weight: 600;
+  transition: transform 0.18s, box-shadow 0.18s, border-color 0.18s, background 0.18s;
+  box-shadow: 0 2px 6px rgba(28, 39, 66, 0.06);
+  overflow: hidden;
+}
+.doc-link::before {
+  /* hover 时左上角光晕（用 ::before 伪元素，与 .card 一致的设计语言） */
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  pointer-events: none;
+  background: radial-gradient(180px 80px at 0% 0%, var(--accent, #4fa3ff) 0%, rgba(0,0,0,0) 70%);
+  opacity: 0.10;
+  transition: opacity 0.18s;
+}
+.doc-link:hover {
+  border-color: var(--accent, #1f6feb);
+  background: rgba(255, 255, 255, 0.92);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 18px rgba(28, 39, 66, 0.14);
+}
+.doc-link:hover::before { opacity: 0.30; }
+.doc-link .bar {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--accent, #4fa3ff);
+}
+.doc-link .doc-name {
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.doc-link .doc-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px; height: 22px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 900;
+  color: #fff;
+  background: var(--accent, #4fa3ff);
+}
+.doc-link .doc-go {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  transition: transform 0.18s, color 0.18s;
+}
+.doc-link:hover .doc-go {
+  color: var(--accent, #1f6feb);
+  transform: translateX(2px);
+}
+.docs-hint {
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: #6b7280;
+  line-height: 1.5;
+}
+@media (max-width: 720px) {
+  .docs-row { padding: 0 18px; }
+  .docs-grid { grid-template-columns: 1fr; }
 }
 </style>
