@@ -1,5 +1,7 @@
 # 详细部署
 
+> EasyGraph（EasyGraph 智能知识图谱构建与问答工具）生产部署指南。
+
 > 适合首次部署或大规模环境调优使用。日常 5 分钟上手请看 [00-quickstart.md](00-quickstart.md)。
 
 ## 部署模式

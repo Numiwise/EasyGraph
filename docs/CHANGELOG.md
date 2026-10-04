@@ -2,16 +2,18 @@
 
 ## v2.2.0 — 2026-10-04
 
-**项目更名为 EasyGraph。**
+**项目正式更名为 EasyGraph，确立中文品牌名「EasyGraph 智能知识图谱构建与问答工具」。**
 
 主要变更：
 
 ### 项目
-- 应用名由 `lightrag-deploy` / `lightrag-visualize` 正式更名为 **EasyGraph**（gitee 仓库已同步改名）
+- 应用名由 `lightrag-deploy` / `lightrag-visualize` 正式更名为 **EasyGraph**
+- 中文官方名：**EasyGraph 智能知识图谱构建与问答工具**
+- Gitee 仓库 `numiwise/lightrag-visualize` 已重命名为 `numiwise/easygraph`
 - Docker Compose 项目名显式指定 `name: easygraph`，数据卷前缀从 `lightrag-deploy_*` 改为 `easygraph_*`
-- 前端 `package.json` name 改为 `easygraph-webviz`，版本号升至 2.2.0
-- 浏览器标签页标题改为 "EasyGraph · 知识图谱问答"
-- 文档（README、quickstart、CHANGELOG、cloud-setup.sh）项目名引用统一更新
+- 前端 `package.json` name 改为 `easygraph-webviz`，version 升至 2.2.0
+- 浏览器标签页标题改为 "EasyGraph · 智能知识图谱构建与问答工具"
+- README / quickstart / architecture / deploy / CHANGELOG / cloud-setup.sh 顶层品牌名 + 中文官方名统一
 
 ### 不变项（确保兼容）
 - 底层 RAG 框架仍为 [LightRAG](https://github.com/HKUDS/LightRAG) v1.5.6（保留所有 `lightrag-*` 容器名、`/lightrag/*` API 路径、LightRAG 镜像拉取）

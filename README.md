@@ -1,7 +1,9 @@
-# EasyGraph · 知识图谱问答（Multi-Workspace Demo）
+# EasyGraph_智能知识图谱构建与问答工具（Multi-Workspace Demo）
 
-> 一个用 [LightRAG](https://github.com/HKUDS/LightRAG) + Neo4j + Qdrant + PostgreSQL 搭建的
+> **EasyGraph**（中文名：**EasyGraph 智能知识图谱构建与问答工具**）是一个用
+> [LightRAG](https://github.com/HKUDS/LightRAG) + Neo4j + Qdrant + PostgreSQL 搭建的
 > **「7 个工作区 = 1 张总图 + 6 张专题子图」** 的知识图谱可视化与 AI 问答系统。
+
 > 前端是一个无构建依赖的 Vue 3 应用（浏览器直连 Neo4j BOLT）。
 
 ---

@@ -3,7 +3,7 @@
   "version": "2.2.0",
   "private": true,
   "type": "module",
-  "description": "EasyGraph 知识图谱可视化前端 — Vue 3 + Vite 工程（基于 LightRAG v1.5.6）",
+  "description": "EasyGraph 智能知识图谱构建与问答工具 — Vue 3 + Vite 前端工程（基于 LightRAG v1.5.6）",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
