@@ -34,8 +34,14 @@ const backendProxies = {
 export default defineConfig({
   plugins: [
     vue(),
-    AutoImport({ resolvers: [ElementPlusResolver()] }),
-    Components({ resolvers: [ElementPlusResolver()] })
+    AutoImport({
+      resolvers: [ElementPlusResolver()],
+      dts: true
+    }),
+    Components({
+      resolvers: [ElementPlusResolver()],
+      dts: true
+    })
   ],
   resolve: {
     alias: {

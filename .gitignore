@@ -28,6 +28,8 @@ __pycache__/
 node_modules/
 dist/
 .vite/
+components.d.ts
+auto-imports.d.ts
 
 # ---- 备份与重构临时文件（不入 git） ----
 _refactor_bak/
