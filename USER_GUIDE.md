@@ -37,7 +37,7 @@
 
 点击首页中间那张 **「总图谱」** 大卡片，会新开一个标签页，显示如下：
 
-![总图谱](docs/assets/USER_GUIDE/graph-master.png)
+![文档管理](docs/assets/USER_GUIDE/docs-webui.png)
 
 页面上有以下按钮：
 
@@ -70,7 +70,7 @@
 
 点击任何一张小卡片（比如「荔枝品种」），会自动打开对应的子图。
 
-![子图：地点与交通](docs/assets/USER_GUIDE/graph-sub.png)
+![总图谱](docs/assets/USER_GUIDE/graph-master.png)
 
 界面和总图谱一样，工具栏在上面，左下图例也在同样位置。
 
@@ -94,7 +94,7 @@
 
 打开后是这样的界面：
 
-![文档管理](docs/assets/USER_GUIDE/docs-webui.png)
+![子图：地点与交通](docs/assets/USER_GUIDE/graph-sub.png)
 
 页面顶部有几个标签可以切换（点击对应标签即可跳转）：
 
