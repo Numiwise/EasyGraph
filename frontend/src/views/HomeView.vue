@@ -55,6 +55,10 @@
         <!--
           总图谱的特色横卡：点击触发 enter(master.id)。
           --accent 是 CSS 变量，让样式内部能用 var(--accent) 引用颜色。
+          双 CTA 设计：
+            - "📄 文档管理" 按钮：新标签页打开 LightRAG 官方 WebUI（无需登录）
+            - "进入图谱 →" 文本：触发 enter(master.id)
+          两个 CTA 用 .stop 阻止冒泡，避免点文档按钮跳图谱。
         -->
         <div v-if="master" class="card featured" :style="{ '--accent': master.color }" @click="enter(master.id)">
           <span class="bar" :style="{background: master.color}"></span>
@@ -67,7 +71,18 @@
                 <b>{{ counts[master.id] }}</b> 实体 · <b>{{ rels[master.id] || 0 }}</b> 关系
               </span>
               <span v-else class="count dim">暂无数据</span>
-              <span class="go">进入图谱 <span>→</span></span>
+              <div class="cta-group">
+                <a class="doc-btn"
+                   :href="'/lightrag/' + master.id + '/webui/'"
+                   target="_blank" rel="noopener"
+                   :style="{ '--accent': master.color }"
+                   @click.stop
+                   title="打开 LightRAG 官方 WebUI（文档管理/上传/索引进度）">
+                  <span class="doc-icon">📄</span>
+                  <span>文档</span>
+                </a>
+                <span class="go">进入图谱 <span>→</span></span>
+              </div>
             </div>
           </div>
         </div>
@@ -93,7 +108,17 @@
                 <b>{{ counts[m.id] }}</b> 实体 · <b>{{ rels[m.id] || 0 }}</b> 关系
               </span>
               <span v-else class="count dim">暂无数据</span>
-              <span class="go">进入图谱 <span>→</span></span>
+              <div class="cta-group">
+                <a class="doc-btn doc-btn-mini"
+                   :href="'/lightrag/' + m.id + '/webui/'"
+                   target="_blank" rel="noopener"
+                   :style="{ '--accent': m.color }"
+                   @click.stop
+                   title="打开 LightRAG 官方 WebUI（文档管理）">
+                  <span class="doc-icon">📄</span>
+                </a>
+                <span class="go">进入图谱 <span>→</span></span>
+              </div>
             </div>
           </div>
         </div>
@@ -102,12 +127,16 @@
       <!-- 文档管理入口（方案 C）
            跳转 LightRAG 官方 WebUI（/lightrag/<ws>/webui/）。
            nginx 已在反代时自动注入 API Key，浏览器无需输入密码。
-           target="_blank" 新标签页打开，不覆盖大屏。 -->
+           target="_blank" 新标签页打开，不覆盖大屏。
+           这是"兜底入口"——卡片上也有入口，但这里给一个总览视图。 -->
       <div class="docs-row">
         <div class="docs-title">
-          <span class="docs-icon">📄</span>
-          <span>文档管理入口</span>
-          <span class="docs-subtitle">LightRAG 官方 UI · 上传 / 索引进度 / 重新处理</span>
+          <span class="docs-icon-big" :style="{background: 'linear-gradient(135deg,#1f6feb,#9333ea)'}">📄</span>
+          <div class="docs-title-text">
+            <span class="docs-title-main">文档管理入口</span>
+            <span class="docs-subtitle">LightRAG 官方 WebUI · 上传文档 / 查看索引进度 / 重新处理 · 免登录</span>
+          </div>
+          <span class="docs-badge">7 个工作区</span>
         </div>
         <div class="docs-grid">
           <a v-for="m in WS_META" :key="m.id"
@@ -117,11 +146,11 @@
              :style="{ '--accent': m.color }">
             <span class="bar" :style="{background: m.color}"></span>
             <span class="doc-name">{{ m.name }}</span>
-            <span class="doc-badge" :style="{background: m.color}">{{ m.badge }}</span>
+            <span class="doc-badge-mini" :style="{background: m.color}">{{ m.badge }}</span>
             <span class="doc-go">打开 →</span>
           </a>
         </div>
-        <div class="docs-hint">已配置 nginx 自动注入 API Key，访问官方 UI 无需登录 · 支持文件上传 / 索引进度查看 / 文档重新处理</div>
+        <div class="docs-hint">💡 nginx 已自动注入 API Key，访问官方 UI 无需登录 · 支持文件上传 / 索引进度查看 / 文档重新处理</div>
       </div>
     </div>
   </div>
@@ -455,6 +484,38 @@ onMounted(async () => {
   background: rgba(255, 255, 255, .08);
   border-color: rgba(255, 255, 255, .16);
 }
+/* 双 CTA 容器：把"📄 文档"按钮 + "进入图谱 →" 文本包在一起，靠右对齐 */
+.card .cta-group {
+  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+}
+/* "📄 文档" 按钮：胶囊样式，跟随卡片主题色 */
+.card .doc-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .92);
+  color: var(--accent, #1f6feb);
+  font-size: 12px; font-weight: 700; letter-spacing: .3px;
+  text-decoration: none;
+  border: 1px solid rgba(255, 255, 255, .65);
+  transition: transform .18s, box-shadow .18s, background .18s;
+  box-shadow: 0 2px 6px rgba(28, 39, 66, .18);
+  white-space: nowrap;
+}
+.card .doc-btn:hover {
+  background: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(28, 39, 66, .28);
+}
+.card .doc-btn .doc-icon {
+  font-size: 13px; line-height: 1;
+}
+/* 子图卡片的迷你"📄"图标按钮（不带文字，只显示图标，节省空间） */
+.card .doc-btn-mini {
+  padding: 4px 7px;
+  font-size: 14px;
+}
+.card .doc-btn-mini span:not(.doc-icon) { display: none; }
 .card .go {
   color: #ffffff; opacity: 0.9; font-weight: 700;
   font-size: 12px; letter-spacing: .3px; white-space: nowrap;
@@ -499,18 +560,45 @@ onMounted(async () => {
 }
 .docs-title {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+  align-items: center;
+  gap: 12px;
   font-size: 15px;
   font-weight: 800;
   color: #2c3e6b;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
-.docs-icon { font-size: 18px; }
+/* 大圆角图标盒：把"📄"包成 36×36 的渐变方块，跟英雄区"快速开始"的数字徽标呼应 */
+.docs-icon-big {
+  width: 36px; height: 36px;
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+  box-shadow: 0 4px 12px rgba(31, 111, 235, .28);
+  flex-shrink: 0;
+}
+/* 标题文字容器（主标题 + 副标题 两行） */
+.docs-title-text {
+  display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0;
+}
+.docs-title-main {
+  font-size: 15px; font-weight: 800; color: #2c3e6b; letter-spacing: .5px;
+}
 .docs-subtitle {
   font-size: 12px;
   font-weight: 500;
   color: #6b7280;
+}
+/* 右上角"7 个工作区"标签 */
+.docs-badge {
+  flex-shrink: 0;
+  display: inline-flex; align-items: center;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 11.5px; font-weight: 700;
+  background: rgba(31, 111, 235, .10);
+  color: #1f6feb;
+  border: 1px solid rgba(31, 111, 235, .25);
+  letter-spacing: .3px;
 }
 .docs-grid {
   display: grid;
@@ -564,7 +652,7 @@ onMounted(async () => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.doc-link .doc-badge {
+.doc-link .doc-badge-mini {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
@@ -588,9 +676,9 @@ onMounted(async () => {
   transform: translateX(2px);
 }
 .docs-hint {
-  margin-top: 10px;
-  font-size: 11.5px;
-  color: #6b7280;
+  margin-top: 12px;
+  font-size: 12px;
+  color: #4b5563;
   line-height: 1.5;
 }
 @media (max-width: 720px) {
