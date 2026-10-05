@@ -105,21 +105,22 @@
             <h3>{{ m.name }}</h3>
             <p>{{ m.desc }}</p>
             <div class="foot">
-              <span v-if="counts[m.id] !== undefined" class="count">
-                <b>{{ counts[m.id] }}</b> 实体 · <b>{{ rels[m.id] || 0 }}</b> 关系
-              </span>
-              <span v-else class="count dim">暂无数据</span>
-              <div class="cta-group">
-                <a class="doc-btn doc-btn-mini"
-                   :href="'/lightrag/' + m.id + '/webui/'"
-                   target="_blank" rel="noopener"
-                   :style="{ '--accent': m.color }"
-                   @click.stop
-                   title="打开 LightRAG 官方 WebUI（文档管理）">
+              <div class="count-group">
+                <span v-if="counts[m.id] !== undefined" class="count">
+                  <b>{{ counts[m.id] }}</b> 实体 · <b>{{ rels[m.id] || 0 }}</b> 关系
+                </span>
+                <span v-else class="count dim">暂无数据</span>
+                <el-button
+                  class="doc-btn-ep doc-btn-ep-mini"
+                  :style="{ '--accent': m.color }"
+                  size="small"
+                  round
+                  @click.stop="openDocs(m.id)"
+                  title="打开 LightRAG 官方 WebUI（文档管理）">
                   <span class="doc-icon">📄</span>
-                </a>
-                <span class="go">进入图谱 <span>→</span></span>
+                </el-button>
               </div>
+              <span class="go">进入图谱 <span>→</span></span>
             </div>
           </div>
         </div>
@@ -492,41 +493,49 @@ onMounted(async () => {
   background: rgba(255, 255, 255, .08);
   border-color: rgba(255, 255, 255, .16);
 }
-/* 双 CTA 容器：把"📄 文档"按钮 + "进入图谱 →" 文本包在一起，靠右对齐 */
-.card .cta-group {
-  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+/* 计数 + 文档按钮的横向组合：按钮紧挨"暂无数据/实体数"，与右侧"进入图谱"拉开距离 */
+.card .count-group {
+  display: flex; align-items: center; gap: 8px; flex-shrink: 1; min-width: 0;
 }
-/* "📄 文档" 按钮：胶囊样式，跟随卡片主题色 */
-.card .doc-btn {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 4px 10px;
+
+/* Element Plus 文档按钮：覆盖默认 padding/边框，做成胶囊小按钮 */
+.card .doc-btn-ep {
+  --el-button-bg-color: rgba(255, 255, 255, .92);
+  --el-button-border-color: rgba(255, 255, 255, .65);
+  --el-button-text-color: var(--accent, #1f6feb);
+  --el-button-hover-bg-color: #ffffff;
+  --el-button-hover-border-color: rgba(255, 255, 255, .9);
+  --el-button-hover-text-color: var(--accent, #1f6feb);
+  --el-button-active-bg-color: #ffffff;
+  --el-button-active-border-color: rgba(255, 255, 255, .9);
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .3px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, .92);
-  color: var(--accent, #1f6feb);
-  font-size: 12px; font-weight: 700; letter-spacing: .3px;
-  text-decoration: none;
-  border: 1px solid rgba(255, 255, 255, .65);
-  transition: transform .18s, box-shadow .18s, background .18s;
   box-shadow: 0 2px 6px rgba(28, 39, 66, .18);
-  white-space: nowrap;
+  transition: transform .18s cubic-bezier(.34,1.56,.64,1), box-shadow .18s, background-color .18s;
 }
-.card .doc-btn:hover {
-  background: #ffffff;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 10px rgba(28, 39, 66, .28);
+.card .doc-btn-ep :deep(.el-button__content) {
+  display: inline-flex; align-items: center; gap: 4px;
 }
-.card .doc-btn .doc-icon {
-  font-size: 13px; line-height: 1;
+/* hover 时明显放大 + 浮起 + 阴影增强 */
+.card .doc-btn-ep:hover {
+  transform: scale(1.16) translateY(-2px);
+  box-shadow: 0 8px 18px rgba(28, 39, 66, .36);
 }
-/* 子图卡片的迷你"📄"图标按钮（不带文字，只显示图标，节省空间） */
-.card .doc-btn-mini {
-  padding: 4px 7px;
-  font-size: 14px;
+.card .doc-btn-ep .doc-icon { font-size: 13px; line-height: 1; }
+/* 子图卡片的迷你文档按钮：只显示 📄 图标 */
+.card .doc-btn-ep-mini {
+  padding: 0 7px;
 }
-.card .doc-btn-mini span:not(.doc-icon) { display: none; }
+.card .doc-btn-ep-mini .doc-icon { font-size: 14px; }
+
 .card .go {
   color: #ffffff; opacity: 0.9; font-weight: 700;
   font-size: 12px; letter-spacing: .3px; white-space: nowrap;
+  margin-left: auto;     /* 让"进入图谱"始终靠右，与左侧按钮保持清晰距离 */
 }
 .card .go span {
   display: inline-block; transition: transform 0.18s; margin-left: 4px;

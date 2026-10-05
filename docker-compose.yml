@@ -194,6 +194,9 @@ services:
         condition: service_started
     ports:
       - "5006:80"   # 图谱可视化大屏（http://localhost:5006）
+    networks:
+      - default
+      - lightrag-deploy_default
     # 把 LLM key 从 .env 注入容器，供 nginx 模板 envsubst（见下）使用。
     # 安全：key 走 .env（不入 git），不在代码里写死。
     environment:
@@ -210,13 +213,15 @@ services:
       - ./data/inputs:/kb:ro
       # 自定义 nginx 配置：
       #   nginx-main.conf  → 主配置（user root，规避挂载文件 0600 权限问题）
-      #   nginx-webviz.conf → 站点配置（暴露 /kb/ 纯文本目录 + SPA 回落）
+      #   nginx-webviz.conf → 站点配置（暴露 /kb/ 纯文本目录 + SPA 回落 + LightRAG 反代）
       #     * 以 .template 挂在 /etc/nginx/templates/ 下，nginx 官方 entrypoint 会在
       #       启动时对其做 envsubst（把 ${LLM_BINDING_API_KEY} 替换为容器环境变量的值），
       #       再渲染出 /etc/nginx/conf.d/webviz.conf。这样真实 LLM key 只需在 .env 里
       #       提供，代码里不写死。
       - ./nginx/nginx-main.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/nginx-webviz.conf:/etc/nginx/templates/webviz.conf.template:ro
+      # LightRAG 免登录修复脚本：nginx 通过 sub_filter 把它注入到 LightRAG WebUI HTML
+      - ./nginx/fix-auth.js:/etc/nginx/fix-auth/fix-auth.js:ro
 
   # ========== LightRAG 服务（7 个图谱 = 6 分图 + 1 总图） ==========
   # 机制：LightRAG v1.5.6 一个容器实例固定使用一个 WORKSPACE；存储层按工作区
@@ -385,3 +390,10 @@ volumes:
   qdrant_data:
   postgres_data:
   pgadmin_data:
+
+networks:
+  # LightRAG 服务（lightrag-server / g01-g06）实际运行在另一个 docker compose 项目
+  # （项目名 lightrag-deploy）创建的默认网络上。为了让本 compose 的 webviz/nginx
+  # 能用服务名反代到这些实例，需要把 webviz 也加入该外部网络。
+  lightrag-deploy_default:
+    external: true
