@@ -78,9 +78,9 @@
                   size="small"
                   round
                   @click.stop="openDocs(master.id)"
-                  title="打开 LightRAG 官方 WebUI（文档管理/上传/索引进度）">
-                  <span class="doc-icon">📄</span>
-                  <span>文档</span>
+                  title="打开 LightRAG 官方 WebUI（上传文档 / 查看索引进度）">
+                  <span class="doc-icon">📤</span>
+                  <span>上传文档</span>
                 </el-button>
               </div>
               <span class="go">进入图谱 <span>→</span></span>
@@ -116,8 +116,9 @@
                   size="small"
                   round
                   @click.stop="openDocs(m.id)"
-                  title="打开 LightRAG 官方 WebUI（文档管理）">
-                  <span class="doc-icon">📄</span>
+                  title="打开 LightRAG 官方 WebUI（上传文档 / 查看索引进度）">
+                  <span class="doc-icon">📤</span>
+                  <span>上传文档</span>
                 </el-button>
               </div>
               <span class="go">进入图谱 <span>→</span></span>
@@ -126,16 +127,16 @@
         </div>
       </div>
 
-      <!-- 文档管理入口（方案 C）
+      <!-- 上传文档入口（方案 C）
            跳转 LightRAG 官方 WebUI（/lightrag/<ws>/webui/）。
            nginx 已在反代时自动注入 API Key，浏览器无需输入密码。
            target="_blank" 新标签页打开，不覆盖大屏。
            这是"兜底入口"——卡片上也有入口，但这里给一个总览视图。 -->
       <div class="docs-row">
         <div class="docs-title">
-          <span class="docs-icon-big" :style="{background: 'linear-gradient(135deg,#1f6feb,#9333ea)'}">📄</span>
+          <span class="docs-icon-big" :style="{background: 'linear-gradient(135deg,#1f6feb,#9333ea)'}">📤</span>
           <div class="docs-title-text">
-            <span class="docs-title-main">文档管理入口</span>
+            <span class="docs-title-main">上传文档</span>
             <span class="docs-subtitle">LightRAG 官方 WebUI · 上传文档 / 查看索引进度 / 重新处理 · 免登录</span>
           </div>
           <span class="docs-badge">7 个工作区</span>
@@ -152,7 +153,7 @@
             <span class="doc-go">打开 →</span>
           </a>
         </div>
-        <div class="docs-hint">💡 nginx 已自动注入 API Key，访问官方 UI 无需登录 · 支持文件上传 / 索引进度查看 / 文档重新处理</div>
+        <div class="docs-hint">💡 nginx 已自动注入 API Key，访问官方 UI 无需登录 · 支持上传文档 / 索引进度查看 / 文档重新处理</div>
       </div>
     </div>
   </div>
