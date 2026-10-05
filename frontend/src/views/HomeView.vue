@@ -67,22 +67,23 @@
             <h3>{{ master.name }}</h3>
             <p>{{ master.desc }}</p>
             <div class="foot">
-              <span v-if="counts[master.id] !== undefined" class="count">
-                <b>{{ counts[master.id] }}</b> 实体 · <b>{{ rels[master.id] || 0 }}</b> 关系
-              </span>
-              <span v-else class="count dim">暂无数据</span>
-              <div class="cta-group">
-                <a class="doc-btn"
-                   :href="'/lightrag/' + master.id + '/webui/'"
-                   target="_blank" rel="noopener"
-                   :style="{ '--accent': master.color }"
-                   @click.stop
-                   title="打开 LightRAG 官方 WebUI（文档管理/上传/索引进度）">
+              <div class="count-group">
+                <span v-if="counts[master.id] !== undefined" class="count">
+                  <b>{{ counts[master.id] }}</b> 实体 · <b>{{ rels[master.id] || 0 }}</b> 关系
+                </span>
+                <span v-else class="count dim">暂无数据</span>
+                <el-button
+                  class="doc-btn-ep"
+                  :style="{ '--accent': master.color }"
+                  size="small"
+                  round
+                  @click.stop="openDocs(master.id)"
+                  title="打开 LightRAG 官方 WebUI（文档管理/上传/索引进度）">
                   <span class="doc-icon">📄</span>
                   <span>文档</span>
-                </a>
-                <span class="go">进入图谱 <span>→</span></span>
+                </el-button>
               </div>
+              <span class="go">进入图谱 <span>→</span></span>
             </div>
           </div>
         </div>
@@ -236,6 +237,13 @@ function goQuery() {
 //   这样可以让用户把"对话页"和"图谱"同时打开比对
 function enter(ws) {
   const url = window.location.origin + window.location.pathname + '#/graph/' + ws;
+  window.open(url, '_blank');
+}
+
+// 打开 LightRAG 官方 WebUI（文档管理 / 上传 / 索引进度）
+// 用 window.open 替代 <a href>，彻底避免与卡片点击事件冲突，也避免浏览器把新标签页拦截后留在首页。
+function openDocs(ws) {
+  const url = '/lightrag/' + ws + '/webui/';
   window.open(url, '_blank');
 }
 
